@@ -1,0 +1,10 @@
+*.class
+*.jar
+/.nrepl-port
+/.repl
+/lib/
+/log/
+/target/
+pom.xml
+pom.xml.asc
+*.iml

@@ -1,0 +1,8 @@
+{:paths ["src" "resources"]
+
+ :deps {com.google.guava/guava {:mvn/version "28.0-jre"}
+        meta-merge/meta-merge {:mvn/version "1.0.0"}}
+
+ :aliases {:dev {:extra-paths ["test"]
+                 :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}}}
+
