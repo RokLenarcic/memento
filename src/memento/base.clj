@@ -3,10 +3,20 @@
 
   This namespace includes internal tooling and shouldn't be used directly
   unless writing extensions."
-  {:author "Rok Lenarčič"})
+  {:author "Rok Lenarčič"}
+  (:require [meta-merge.core :refer [meta-merge]]))
 
-(def ^:dynamic *regions*
-  "Storage for the region caches." {})
+; use alter-var-root to update this, since config calls will generally happen during namespace loading
+(def configs {})
+
+(defn grab-and-merge-configs
+  "Convenience function for merging"
+  [typ spec]
+  (->> (tree-seq some? parents typ)
+       (keep configs)
+       (cons spec)
+       reverse
+       (apply meta-merge)))
 
 (defrecord NonCached [v])
 
@@ -20,12 +30,14 @@
   "The spec given directly (not from var or fn meta) can have non-namespaced keys, which
   we will namespace."
   [spec]
-  (reduce-kv (fn [m k v] (assoc m (add-keyword-ns "memento.core" k) v)) {} spec))
+  (with-meta
+    (reduce-kv (fn [m k v] (assoc m (add-keyword-ns "memento.core" k) v)) {} spec)
+    (meta spec)))
 
 (defn active-cache
   "Return active cache from the object's meta."
   [obj]
-  (:memento.core/cache (meta obj)))
+  (::cache (meta obj)))
 
 (defprotocol Cache
   "Protocol for Cache. If Cache for a Region, it needs to check if Region is started
@@ -39,36 +51,78 @@
   (invalidate-all [this] "Invalidate all entries, returns Cache")
   (put-all [this m] "Add entries to cache, returns Cache")
   (as-map [this] "Returns the cache as a map. This does not imply a snapshot,
-  as implementation might provide a weakly consistent view of the cache."))
+  as implementation might provide a weakly consistent view of the cache.")
+  (nuke! [this] "Invalidate all entries in the context of this type. Can be
+  implementation specific, usually this means clearing the cache region."))
 
-(defn region-cache [region] (get-in *regions* [region :memento.core/cache]))
-
-(defprotocol CacheRegion
-  "Cache region. Caches created from this region use same pool of resources,
-  such as max-size, ttl-queue etc. Removing a region thus also removes multiple
-  function's caches at once.
-
-  Region should not be created with a backend cache running and should wait for start-region call."
-  (started-region [this] "If region is not started, returns a new started CacheRegion, otherwise returns this.")
-  (invalidate-region [this] "Remove all entries in the region.")
-  (region-id [this] "Return region ID to be used for this region")
-  (region-spec [this] "Return spec of the region."))
+#_(defrecord ScopedCache []
+  Cache
+  (nuke! [this] (nuke! @later-cache))
+  (get-cached [this args] (get-cached @later-cache args))
+  (invalidate [this args] (invalidate @later-cache args))
+  (invalidate-all [this] (invalidate-all @later-cache))
+  (put-all [this m] (put-all @later-cache m))
+  (as-map [this] (as-map @later-cache)))
 
 (defmulti create-cache
           "Creates a cache for a function with the spec."
-          (fn [spec f] (:memento.core/type spec)))
+          (fn [typ spec f] (:memento.core/type spec)))
 
-(defmulti create-region
-          "Create a cache region from a spec map (containing things such as eviction settings,
-          ttl times, etc....).
+(defmulti configure-cache "Configure cache type." (fn [typ spec] typ))
 
-          All caches created in the region share these properties, i.e. in a region that houses
-          3 function caches, if max size is set to 100, that is the limit for the sum of cached
-          entries in all 3 caches.
+(defmethod configure-cache :default
+  [typ spec]
+  (derive typ :memoize.core/guava-region)
+  (configure-cache typ spec))
 
-          This is usually achieved by a single backing data-structure.
+(defmethod configure-cache :memento.core/scoped
+  [typ spec]
+  (alter-var-root
+    #'configs
+    (fn [configs]
+      (assoc configs
+        typ
+        (meta-merge spec ^:displace {:memento.core/scope (ThreadLocal.)})))))
 
-          Contains at least keys:
-          - memento.core/type (cache type)
-          - memento.core/region (region id)"
-          (fn [spec] (:memento.core/type spec)))
+(defmethod create-cache :default
+  [typ spec f]
+  ; a type will be registered at a later date
+  (if (::lazy-create (meta spec))
+    (throw (ex-info (str "Attempted to use cache type " typ " before it was registered")
+                    (assoc spec :type typ)))
+    (let [later-cache (delay (create-cache typ (vary-meta spec assoc ::lazy-create true) f))]
+      (reify Cache
+        (nuke! [this] (nuke! @later-cache))
+        (get-cached [this args] (get-cached @later-cache args))
+        (invalidate [this args] (invalidate @later-cache args))
+        (invalidate-all [this] (invalidate-all @later-cache))
+        (put-all [this m] (put-all @later-cache m))
+        (as-map [this] (as-map @later-cache))))))
+
+(defmethod create-cache :memento.core/scoped
+  [typ spec f]
+  (let [cache ()]
+    (reify Cache
+      (nuke! [this] (nuke! @later-cache))
+      (get-cached [this args] (get-cached @later-cache args))
+      (invalidate [this args] (invalidate @later-cache args))
+      (invalidate-all [this] (invalidate-all @later-cache))
+      (put-all [this m] (put-all @later-cache m))
+      (as-map [this] (as-map @later-cache)))))
+
+(defn attach
+  "Attach a cache to a fn or var. Internal function.
+
+  Scrape var or fn meta and add it to the spec."
+  [enabled? f spec]
+  (if (var? f)
+    (alter-var-root f attach (meta-merge (meta f) spec))
+    (let [final-spec (meta-merge (meta f) spec)
+          cache (create-cache (add-keyword-ns "memento.core" (:memento.core/type final-spec)) final-spec f)]
+      (with-meta
+        (if enabled? (fn [& args] (get-cached cache args))
+                     (fn [& args]
+                       (loop [v (apply f args)]
+                         (if (instance? NonCached v) (recur (:v v)) v))))
+        {::cache cache
+         ::original f}))))
