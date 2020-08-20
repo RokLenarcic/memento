@@ -101,7 +101,7 @@
              (- (System/currentTimeMillis) start) "ms")))
 
 (deftest test-memoization-utils
-  (let [CACHE_IDENTITY (:memento.core/cache (meta id))]
+  (let [CACHE_IDENTITY (:memento.base/cache (meta id))]
     (testing "that the stored cache is not null"
       (is (not= nil CACHE_IDENTITY)))
     (testing "that a populated function looks correct at its inception"
@@ -126,7 +126,7 @@
         (is (memo-clear! id))
         (is (empty? (as-map id)))))
     (testing "that after all manipulations, the cache maintains its identity"
-      (is (identical? CACHE_IDENTITY (:memento.core/cache (meta id)))))
+      (is (identical? CACHE_IDENTITY (:memento.base/cache (meta id)))))
     (testing "that a cache can be seeded and used normally"
       (memo-clear! id)
       (is (memo-add! id {[42] 42}))

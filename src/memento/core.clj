@@ -8,22 +8,13 @@
 (def enabled? (Boolean/valueOf (System/getProperty "memento.enabled" "true")))
 
 (def ^:dynamic *default-type* ::guava)
-(derive :memento.core/scoped :memento.core/cache)
 
-(defn configure-cache!
-  "Configure the cache type. This is specific for each basic cache type.
+(defn set-region!
+  "Create a new Cache Region and bind it to region-id.
 
-  If type is not known it will create a new ::guava-region subtype.
-
-  Built-ins:
-
-  - memoize.core/guava: configuration will be added as default spec for
-  caches of this type
-  - memoize.core/guava-region: spec is applied to create the region and
-  its cache, recreating the region and any derived regions.
-  - memoize.core/scoped: configuration will be added to the next"
-  [typ spec]
-  (b/configure-cache typ (with-meta (b/direct-spec spec) (meta spec))))
+  It will overwrite existing region (generally dropping that cache)."
+  [region-id spec]
+  (alter-var-root #'b/regions #(assoc % region-id (b/new-region region-id spec *default-type*))))
 
 (defn non-cached
   "Create a cache result that will not be cached."
@@ -33,8 +24,13 @@
   ([fn-or-var] (memo {} fn-or-var))
   ([spec fn-or-var]
    (if (map? spec)
-     (b/attach enabled? fn-or-var (b/direct-spec spec))
-     (memo {::type (b/add-keyword-ns "memento.core" spec)} fn-or-var))))
+     (b/attach enabled?
+               fn-or-var
+               (meta-merge {::type *default-type*}
+                           (b/direct-spec spec)
+                           (when (::region spec)
+                             {::type ::regional})))
+     (memo {::region spec} fn-or-var))))
 
 (defn memoized?
   "Returns true if function is memoized."
@@ -56,13 +52,16 @@
    (some-> (b/active-cache f)
            (b/invalidate fargs))))
 
-(defn memo-nuke!
-  "Invalidate all entries in a cache region. This depends on implementation..
+(defn memo-clear-region!
+  "Invalidate entries in a cache region.
 
-  Returns the cache."
-  [f]
-  (some-> (b/active-cache f)
-          b/nuke!))
+  If only region-id is supplied the whole cache region is cleared,
+  otherwise the specified entry (function and args).
+
+  The function used here needs to version."
+  [region-id]
+  (some-> (get b/regions region-id)
+          (b/invalidate-region)))
 
 (defn memo-add!
   "Add map's entries to the cache. The keys are argument-lists.
@@ -73,37 +72,23 @@
           (b/put-all m)))
 
 (defn as-map
-  "Return a map representation of the memoized entries on this function.
-
-  If using a cache region, return all entries in the region, where
-  first element of cache key is
-  If return all entries in the region,
-  not just those "
+  "Return a map representation of the memoized entries on this function."
   [f]
   (some-> (b/active-cache f) b/as-map))
 
-(defn configure-guava-cache!
-  "Configures a guava cache subtype. This is a convenience wrapper around `configure-cache`.
+(defn region-as-map
+  "Return a map of memoized entries of the Cache Region."
+  [region-id]
+  (some-> (get b/regions region-id) b/as-map*))
 
-  Region is a keyword, if you don't provide the namespace, the namespace is
-  memento.core."
-  ([subtype spec]
-   (derive (b/add-keyword-ns "memento.core" subtype) ::guava)
-   (configure-cache! (b/add-keyword-ns "memento.core" subtype) spec)))
+(defmacro with-region
+  "Run forms with region-id bound to a new region (thread-local)."
+  [region-id reg-desc & forms]
+  `(binding [b/regions (assoc b/regions ~region-id (b/new-region ~region-id ~reg-desc *default-type*))]
+     ~@forms))
 
-(defn configure-guava-region!
-  "Configures a guava region cache. This is a convenience wrapper around `configure-cache`.
-
-  Region is a keyword, if you don't provide the namespace, the namespace is
-  memento.core."
-  ([region spec]
-   (derive (b/add-keyword-ns "memento.core" region) ::guava-region)
-   (configure-cache! (b/add-keyword-ns "memento.core" region) spec)))
-
-#_(defmacro with-scope
-  "Create a new cache that is active within this scope."
-  [typ spec & body]
-  (let [cache (b/enter-scope (b/add-keyword-ns "memento.core" typ) (or spec {}))]
-    (try
-      ~@body
-      (finally (b/exit-scope (b/add-keyword-ns "memento.core" typ))))))
+(defmacro with-region-alias
+  "Run forms with region-alias aliasing the existing region region-id (thread-local)."
+  [region-alias region-id & forms]
+  `(binding [b/regions (assoc b/regions ~region-alias (get b/regions ~region-id))]
+     ~@forms))
