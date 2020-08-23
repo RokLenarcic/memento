@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.clojars.roklenarcic</groupId>
+  <artifactId>memento</artifactId>
+  <packaging>jar</packaging>
+  <version>0.8.0</version>
+  <name>memento</name>
+  <description>A library for function memoization.</description>
+  <url>https://github.com/RokLenarcic/memento</url>
+  <licenses>
+    <license>
+
+      <name>Eclipse Public License 2.0</name>
+
+      <url>https://github.com/RokLenarcic/memento/blob/master/LICENSE</url>
+
+    </license>
+  </licenses>
+  <scm>
+
+    <url>https://github.com/RokLenarcic/memento</url>
+
+    <connection>scm:git:git://github.com/RokLenarcic/memento.git</connection>
+
+    <developerConnection>scm:git:ssh://git@github.com/RokLenarcic/memento.git</developerConnection>
+
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>org.clojure</groupId>
+      <artifactId>clojure</artifactId>
+      <version>1.10.1</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>28.0-jre</version>
+    </dependency>
+  </dependencies>
+  <build>
+    <sourceDirectory>src</sourceDirectory>
+  </build>
+  <repositories/>
+</project>
