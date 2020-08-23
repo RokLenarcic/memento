@@ -6,7 +6,7 @@
 (deftest cache-creation
   (testing "Creates a cache builder"
     (are [expected props]
-      (= expected (str (spec->builder props)))
+      (= expected (str (spec->builder props false)))
       "CacheBuilder{concurrencyLevel=12}" #::m {:concurrency 12}
       "CacheBuilder{initialCapacity=11}" #::m {:initial-capacity 11}
       "CacheBuilder{maximumSize=29}" #::m {:size< 29}
@@ -24,8 +24,8 @@
       "CacheBuilder{valueStrength=soft}" #::m {:soft-values true}
       "CacheBuilder{}" #::m {:ticker (fn [] (System/nanoTime))}
       "CacheBuilder{removalListener}" #::m {:removal-listener (fn [k v event] nil)}
-      "CacheBuilder{initialCapacity=11, maximumWeight=30, expireAfterWrite=100000000000ns, expireAfterAccess=111000000000ns, keyStrength=weak, valueStrength=weak, removalListener}"
-      #::m {:concurrenct 12
+      "CacheBuilder{initialCapacity=11, concurrencyLevel=12, maximumWeight=30, expireAfterWrite=100000000000ns, expireAfterAccess=111000000000ns, keyStrength=weak, valueStrength=weak, removalListener}"
+      #::m {:concurrency 12
             :initial-capacity 11
             :weight< 30
             :ttl 100
@@ -40,8 +40,7 @@
           builder (spec->builder #::m {:weight< 34
                                        :kv-weight (fn [k v] 20)
                                        :ticker (fn [] (System/nanoTime))
-                                       :removal-listener (fn [k v event] nil)})
+                                       :removal-listener (fn [k v event] nil)}
+                                 false)
           cache (.build builder)]
-      (is (= 2 (.get cache 1 (fn [x] (when (= x 1) 2))))))))
-
-
+      (is (= 2 (.get cache 1 (fn [] 2)))))))

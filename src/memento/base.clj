@@ -3,8 +3,7 @@
 
   This namespace includes internal tooling and shouldn't be used directly
   unless writing extensions."
-  {:author "Rok Lenarčič"}
-  (:require [meta-merge.core :refer [meta-merge]]))
+  {:author "Rok Lenarčič"})
 
 ; use alter-var-root to update this, since config calls will generally happen during namespace loading
 (def ^:dynamic regions {})
@@ -92,35 +91,33 @@
           (fn [spec f] (:memento.core/type spec)))
 
 (defmethod create-cache :memento.core/regional
-  [spec f]
-  (let [seed (:memento.core/seed spec)]
-    (cond->
-      (->RegionCache (:memento.core/region spec)
-                     (or (:memento.core/key-fn spec) identity)
-                     (or (:memento.core/ret-fn spec) identity)
-                     f)
-      (map? seed) (put-all seed))))
+  [{:memento.core/keys [seed region key-fn ret-fn]} f]
+  (cond->
+    (->RegionCache region (or key-fn identity) (or ret-fn identity) f)
+    (map? seed) (put-all seed)))
 
 (defmulti create-region (fn [spec] (:memento.core/type spec)))
 
 (defn new-region
   "Convenience function for making new regions"
   [region-id raw-spec default-type]
-  (create-region (meta-merge
-                   #:memento.core {:region region-id
-                                   :type default-type
-                                   :key-fn identity
-                                   :ret-fn identity}
+  (create-region (merge
+                   {:region region-id
+                    :type default-type
+                    :key-fn identity
+                    :ret-fn identity}
                    (direct-spec raw-spec))))
 
 (defn attach
   "Attach a cache to a fn or var. Internal function.
 
-  Scrape var or fn meta and add it to the spec."
-  [enabled? f spec]
+  Scrape var or fn meta and add it to the spec.
+
+  Merge fn meta, var meta, spec."
+  [f spec enabled? default-type]
   (if (var? f)
-    (alter-var-root f attach (meta-merge (meta f) spec))
-    (let [final-spec (meta-merge (meta f) spec)
+    (alter-var-root f attach (merge (meta f) spec) enabled? default-type)
+    (let [final-spec (merge {:memento.core/type default-type} (meta f) spec)
           cache (create-cache final-spec f)]
       (with-meta
         (if enabled? (fn [& args] (get-cached cache args))

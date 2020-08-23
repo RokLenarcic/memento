@@ -156,3 +156,98 @@
       (is (= 13 (mine 10 2 1)))
       (is (= 13 (mine 10 2 10)))
       (is (= {[2 10] 13, [2 1] 13} (as-map mine))))))
+
+(def test-atom (atom 0))
+(defn test-var-fn [x] (swap! test-atom inc) (* x 3))
+
+(deftest add-memo-to-var
+  (testing "that memoing a var works"
+    (memo {} #'test-var-fn)
+    (is (= 3 (test-var-fn 1)))
+    (is (= 3 (test-var-fn 1)))
+    (is (= 3 (test-var-fn 1)))
+    (is (= @test-atom 1))))
+
+(deftest seed-test
+  (testing "that seeding a function works"
+    (let [cached (memo {:seed {[3 5] 100 [4 5] 2000}} +)]
+      (is (= 50 (cached 20 30)))
+      (is (= 1 (cached -1 2)))
+      (is (= 100 (cached 3 5)))
+      (is (= 2000 (cached 4 5))))))
+
+(deftest key-fn-test
+  (testing "that key-fn works for direct cache"
+    (let [cached (memo {:key-fn set} (fn [& ids] ids))]
+      (is (= [3 2 1] (cached 3 2 1)))
+      (is (= [3 2 1] (cached 1 2 3)))
+      (is (= [3 2 1] (cached 1 3 3 2 2 2)))
+      (is (= [2 1] (cached 2 1))))))
+
+(deftest ret-fn-non-cached
+  (testing "that ret-fn is ran"
+    (is (= -4 ((memo {:ret-fn #(* -1 %)} +) 2 2)))
+    (is (= true ((memo {:ret-fn nil?} (constantly nil)) 1)))
+    (is (= nil ((memo {:ret-fn (constantly nil)} +) 2 2))))
+  (testing "that non-cached is respected"
+    (let [access-nums (atom [])
+          f (memo
+              {:ret-fn #(if (zero? (mod % 5)) (non-cached %) %)}
+              (fn [number]
+                (swap! access-nums conj number)
+                (if (zero? (mod number 3)) (non-cached number) number)))]
+      (is (= (range 20)) (map f (range 20)))
+      (is (= (range 20)) (map f (range 20)))
+      (is (= (concat (range 20) [0 3 5 6 9 10 12 15 18]) @access-nums)))))
+
+(deftest reg-region
+  (testing "that region is created"
+    (let [access-count (atom 0)
+          region-name (first (remove (set (keys memento.base/regions)) (range)))
+          f (memo
+              region-name
+              (fn [number]
+                (swap! access-count inc)))]
+      (is (= 1 (f -1)))
+      (is (= 2 (f -1)))
+      (is (= 3 (f -1)))
+      (set-region! region-name {:size< 1})
+      (is (= 4 (f -1)))
+      (is (= 4 (f -1)))
+      (is (= 4 (f -1)))
+      (is (= 5 (f 0))))))
+
+(deftest scoped-region
+  (testing "that an anonymous scope is created"
+    (let [access-count (atom 0)
+          f (memo
+              :request-scope
+              (fn [number] (swap! access-count inc)))]
+      (is (= 1 (f -1)))
+      (is (= 2 (f -1)))
+      (is (= 3 (f -1)))
+      (with-region :request-scope {}
+        (is (= 4 (f -1)))
+        (is (= 4 (f -1)))
+        (is (= 4 (f -1)))
+        (is (= 5 (f 0))))
+      (is (= 6 (f -1)))
+      (is (= 7 (f -1)))
+      (is (= 8 (f 0)))))
+  (testing "that an alias scope is used"
+    (let [access-count (atom 0)
+          _ (set-region! :small-cache {:size< 1})
+          f (memo
+              :request-scope
+              (fn [number] (swap! access-count inc)))]
+      (is (= 1 (f -1)))
+      (is (= 2 (f -1)))
+      (is (= 3 (f -1)))
+      (with-region-alias :request-scope :small-cache
+        (is (= 4 (f -1)))
+        (is (= 4 (f -1)))
+        (is (= 4 (f -1)))
+        (is (= 5 (f 0))))
+      (is (= 6 (f -1)))
+      (is (= 7 (f -1)))
+      (is (= 8 (f 0))))))

@@ -1,8 +1,8 @@
 {:paths ["src" "resources"]
 
- :deps {com.google.guava/guava {:mvn/version "28.0-jre"}
-        meta-merge/meta-merge {:mvn/version "1.0.0"}}
+ :deps {com.google.guava/guava {:mvn/version "28.0-jre"}}
 
  :aliases {:dev {:extra-paths ["test"]
+                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}}
                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}}}
 

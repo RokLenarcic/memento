@@ -1,7 +1,6 @@
 (ns memento.guava
   "Guava cache implementation."
-  (:require [memento.base :as b]
-            [meta-merge.core :refer [meta-merge]])
+  (:require [memento.base :as b])
   (:import (com.google.common.cache Cache CacheBuilder Weigher RemovalListener)
            (java.util.concurrent TimeUnit ExecutionException)
            (com.google.common.base Ticker)
@@ -52,14 +51,19 @@
 (defn ^CacheBuilder spec->builder
   "Creates and configures common parameters on the builder."
   [{:memento.core/keys [concurrency initial-capacity size< weight< ttl fade refresh stats
-                        kv-weight weak-keys weak-values soft-values ticker removal-listener]}]
+                        kv-weight weak-keys weak-values soft-values ticker removal-listener]}
+   region?]
   (cond-> (CacheBuilder/newBuilder)
     concurrency (.concurrencyLevel concurrency)
     initial-capacity (.initialCapacity initial-capacity)
     weight< (.maximumWeight weight<)
     size< (.maximumSize size<)
-    kv-weight (.weigher (reify Weigher (weigh [_this k v]
-                                         (kv-weight k (cval->val v)))))
+    kv-weight (.weigher
+                (if region?
+                  (reify Weigher (weigh [_this k v]
+                                   (kv-weight (first k) (second k) (cval->val v))))
+                  (reify Weigher (weigh [_this k v]
+                                   (kv-weight k (cval->val v))))))
     weak-keys (.weakKeys)
     weak-values (.weakValues)
     soft-values (.softValues)
@@ -67,19 +71,28 @@
     fade (.expireAfterAccess (parse-time-scalar fade) (parse-time-unit fade))
     refresh (.refreshAfterWrite (parse-time-scalar refresh) (parse-time-unit refresh))
     ticker (.ticker (proxy [Ticker] [] (read [] (ticker))))
-    removal-listener (.removalListener (reify RemovalListener
-                                         (onRemoval [this n]
-                                           (removal-listener
-                                             (.getKey n)
-                                             (cval->val (.getValue n))
-                                             (.getCause n)))))
+    removal-listener (.removalListener
+                       (if region?
+                         (reify RemovalListener
+                           (onRemoval [this n]
+                             (removal-listener
+                               (first (.getKey n))
+                               (second (.getKey n))
+                               (cval->val (.getValue n))
+                               (.getCause n))))
+                         (reify RemovalListener
+                           (onRemoval [this n]
+                             (removal-listener
+                               (.getKey n)
+                               (cval->val (.getValue n))
+                               (.getCause n))))))
     stats (.recordStats)))
 
 (defn cget [^Cache guava-cache {:memento.core/keys [key-fn ret-fn]} f args]
   (try
     (.get guava-cache (key->ckey key-fn args)
           (fn cache-load []
-            (->> args (apply f) ret-fn val->cval process-non-cached)))
+            (->> args (apply f) process-non-cached ret-fn process-non-cached val->cval)))
     (catch ExecutionException e (throw (.getCause e)))
     (catch UncheckedExecutionException e
       (let [cause (.getCause e)
@@ -99,7 +112,8 @@
   (put-all [this args-to-vals]
     (let [{:memento.core/keys [key-fn]} spec]
       (reduce-kv (fn guava-put-key [^Cache c k v]
-                   (.put c (key->ckey key-fn k) (val->cval v)))
+                   (.put c (key->ckey key-fn k) (val->cval v))
+                   c)
                  guava-cache
                  args-to-vals)
       this))
@@ -155,14 +169,30 @@
               (.asMap guava-cache)))))
 
 (defmethod b/create-region :memento.core/guava [spec]
-  (->GRegion (.build (spec->builder spec))
+  (->GRegion (.build (spec->builder spec true))
              (merge #:memento.core {:key-fn identity :ret-fn identity} spec)))
 
 (defmethod b/create-cache :memento.core/guava
   [spec f]
   (let [seed (:memento.core/seed spec)]
     (cond->
-      (->GCache (.build (spec->builder spec))
+      (->GCache (.build (spec->builder spec false))
                 (merge #:memento.core {:key-fn identity :ret-fn identity} spec)
                 f)
       (map? seed) (b/put-all seed))))
+
+(defn stats
+  "Return guava stats for the function, if function has non-regional stated Guava Cache.
+
+   Returns com.google.common.cache.CacheStats"
+  [cached-fn]
+  (when-let [c (b/active-cache cached-fn)]
+    (when (instance? GCache c)
+      (.stats ^Cache (:guava-cache c)))))
+
+(defn region-stats
+  "Return guava stats for the region-id. Returns com.google.common.cache.CacheStats"
+  [region-id]
+  (when-let [c (b/regions region-id)]
+    (when (instance? GRegion c)
+      (.stats ^Cache (:guava-cache c)))))

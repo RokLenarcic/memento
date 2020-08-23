@@ -2,8 +2,7 @@
   "Memoization library with many features."
   {:author "Rok Lenarčič"}
   (:require [memento.base :as b]
-            [memento.guava]
-            [meta-merge.core :refer [meta-merge]]))
+            [memento.guava]))
 
 (def enabled? (Boolean/valueOf (System/getProperty "memento.enabled" "true")))
 
@@ -21,15 +20,28 @@
   [v] (b/->NonCached v))
 
 (defn memo
+  "Attach a cache to a function or a var. If var is specified, then var root
+  binding is modified with the cached version of the value.
+
+  If spec is a map, then we merge:
+  - fn meta
+  - var meta (if applicable)
+  - the map given (with all non-namespaced keys getting memento.core namespace)
+
+  This is used to create the cache.
+
+  If :memento.core/region is set the a regional cache is created.
+
+  If spec is not a map, it's equivalent to {:memento.core/region spec}"
   ([fn-or-var] (memo {} fn-or-var))
   ([spec fn-or-var]
    (if (map? spec)
-     (b/attach enabled?
-               fn-or-var
-               (meta-merge {::type *default-type*}
-                           (b/direct-spec spec)
-                           (when (::region spec)
-                             {::type ::regional})))
+     (b/attach fn-or-var
+               (merge (b/direct-spec spec)
+                      (when (::region spec)
+                        {::type ::regional}))
+               enabled?
+               *default-type*)
      (memo {::region spec} fn-or-var))))
 
 (defn memoized?
@@ -48,7 +60,7 @@
   ([f]
    (some-> (b/active-cache f)
            b/invalidate-all))
-  ([f fargs]
+  ([f & fargs]
    (some-> (b/active-cache f)
            (b/invalidate fargs))))
 
