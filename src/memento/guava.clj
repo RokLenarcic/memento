@@ -133,7 +133,7 @@
     (let [new-spec (-> spec
                        (update :memento.core/key-fn augment-keyfn region-cache)
                        (update :memento.core/ret-fn comp (:ret-fn region-cache)))]
-      (cget guava-cache new-spec (:f region-cache) args)))
+      (cval->val (cget guava-cache new-spec (:f region-cache) args))))
   (invalidate* [this region-cache args]
     (let [key-fn (augment-keyfn (:memento.core/key-fn spec) region-cache)]
       (.invalidate guava-cache (key-fn args)))
