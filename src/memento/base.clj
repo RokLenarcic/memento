@@ -102,10 +102,11 @@
   "Convenience function for making new regions"
   [region-id raw-spec default-type]
   (create-region (merge
-                   {:region region-id
-                    :type default-type
-                    :key-fn identity
-                    :ret-fn identity}
+                   #:memento.core
+                       {:region region-id
+                        :type default-type
+                        :key-fn identity
+                        :ret-fn identity}
                    (direct-spec raw-spec))))
 
 (defn attach
