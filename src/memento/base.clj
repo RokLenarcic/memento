@@ -8,6 +8,8 @@
 ; use alter-var-root to update this, since config calls will generally happen during namespace loading
 (def ^:dynamic regions {})
 
+(def ^{:doc "Value that signals absent key."} absent (Object.))
+
 (defrecord NonCached [v])
 
 (defn unwrap-noncached [o]
@@ -40,6 +42,8 @@
     obtain the value.
 
     This should be a thread-safe atomic operation.")
+  (get-if-present [this args]
+    "Return cached value if present in cache or memento.base/absent otherwise.")
   (invalidate [this arg] "Invalidate entry for args, returns Cache")
   (invalidate-all [this] "Invalidate all entries, returns Cache")
   (put-all [this args-to-vals] "Add entries to cache, returns Cache")
@@ -54,6 +58,8 @@
     "Return the cache value for the function and args, possibly invoking the function.
     - region-cache is RegionCache instance
     This should be a thread-safe atomic operation.")
+  (get-if-present* [this region-cache args]
+    "Return cached value if present in cache or memento.base/absent otherwise.")
   (invalidate* [this region-cache args] "Invalidate an arglist for RegionCache")
   (invalidate-cached [this region-cache] "Invalidate all keys stemming from this RegionCache")
   (invalidate-region [this] "Invalidate all entries, returns Region")
@@ -69,6 +75,10 @@
     (if-let [region (regions region-id)]
       (get-cached* region this args)
       (unwrap-noncached (ret-fn (apply f args)))))
+  (get-if-present [this args]
+    (if-let [region (regions region-id)]
+      (get-if-present* region this args)
+      absent))
   (invalidate [this args]
     (when-some [region (regions region-id)]
       (invalidate* region this args))

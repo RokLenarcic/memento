@@ -1,6 +1,7 @@
 (ns memento.ns-scan
   "Scan loaded namespaces for vars that have meta that
   specifies a cache, and attach cache to those vars."
+  {:author "Rok Lenarčič"}
   (:require [memento.core :as core]))
 
 (def default-blacklist [#"^clojure\." #"^nrepl\."])

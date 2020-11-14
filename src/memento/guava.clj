@@ -1,5 +1,6 @@
 (ns memento.guava
   "Guava cache implementation."
+  {:author "Rok Lenarčič"}
   (:require [memento.base :as b])
   (:import (com.google.common.cache Cache CacheBuilder Weigher RemovalListener)
            (java.util.concurrent TimeUnit ExecutionException)
@@ -88,7 +89,7 @@
                                (.getCause n))))))
     stats (.recordStats)))
 
-(defn cget [^Cache guava-cache {:memento.core/keys [key-fn ret-fn]} f args]
+(defn cget [^Cache guava-cache key-fn ret-fn f args]
   (try
     (.get guava-cache (key->ckey key-fn args)
           (fn cache-load []
@@ -101,22 +102,27 @@
           (::non-cached data)
           (throw cause))))))
 
-(defrecord GCache [^Cache guava-cache spec f]
+(defn cget-if-present [^Cache guava-cache key-fn args]
+  (let [v (.getIfPresent guava-cache (key->ckey key-fn args))]
+    (if (nil? v) b/absent v)))
+
+(defrecord GCache [^Cache guava-cache key-fn ret-fn f]
   b/Cache
   (get-cached [this args]
-    (cval->val (cget guava-cache spec f args)))
+    (cval->val (cget guava-cache key-fn ret-fn f args)))
+  (get-if-present [this args]
+    (cval->val (cget-if-present guava-cache key-fn args)))
   (invalidate [this args]
-    (.invalidate guava-cache (key->ckey (:memento.core/key-fn spec) args))
+    (.invalidate guava-cache (key->ckey key-fn args))
     this)
   (invalidate-all [this] (.invalidateAll guava-cache) this)
   (put-all [this args-to-vals]
-    (let [{:memento.core/keys [key-fn]} spec]
-      (reduce-kv (fn guava-put-key [^Cache c k v]
-                   (.put c (key->ckey key-fn k) (val->cval v))
-                   c)
-                 guava-cache
-                 args-to-vals)
-      this))
+    (reduce-kv (fn guava-put-key [^Cache c k v]
+                 (.put c (key->ckey key-fn k) (val->cval v))
+                 c)
+               guava-cache
+               args-to-vals)
+    this)
   (as-map [this]
     (persistent!
       (reduce (fn [m e] (assoc! m (key e) (cval->val (val e))))
@@ -127,16 +133,20 @@
   (fn [args] [(:f region-cache) (key->ckey (comp key-fn (:key-fn region-cache)) args)]))
 
 ;; Combine key fn and ret fn (RegionCache first then our)
-(defrecord GRegion [^Cache guava-cache spec]
+(defrecord GRegion [^Cache guava-cache key-fn ret-fn]
   b/CacheRegion
   (get-cached* [this region-cache args]
-    (let [new-spec (-> spec
-                       (update :memento.core/key-fn augment-keyfn region-cache)
-                       (update :memento.core/ret-fn comp (:ret-fn region-cache)))]
-      (cval->val (cget guava-cache new-spec (:f region-cache) args))))
+    (cval->val (cget guava-cache
+                     (augment-keyfn key-fn region-cache)
+                     (comp ret-fn (:ret-fn region-cache))
+                     (:f region-cache)
+                     args)))
+  (get-if-present* [this region-cache args]
+    (cval->val (cget-if-present guava-cache
+                                (augment-keyfn key-fn region-cache)
+                                args)))
   (invalidate* [this region-cache args]
-    (let [key-fn (augment-keyfn (:memento.core/key-fn spec) region-cache)]
-      (.invalidate guava-cache (key-fn args)))
+    (.invalidate guava-cache ((augment-keyfn key-fn region-cache) args))
     this)
   (invalidate-cached [this region-cache]
     (doseq [e (b/as-map* this)]
@@ -146,10 +156,10 @@
     this)
   (invalidate-region [this] (.invalidateAll guava-cache) this)
   (put-all* [this region-cache args-to-vals]
-    (let [key-fn (augment-keyfn (:memento.core/key-fn spec) region-cache)]
+    (let [new-key-fn (augment-keyfn key-fn region-cache)]
       (reduce-kv
         (fn [_ k v]
-          (.put guava-cache (key-fn k) (val->cval v)))
+          (.put guava-cache (new-key-fn k) (val->cval v)))
         nil
         args-to-vals))
     this)
@@ -170,14 +180,16 @@
 
 (defmethod b/create-region :memento.core/guava [spec]
   (->GRegion (.build (spec->builder spec true))
-             (merge #:memento.core {:key-fn identity :ret-fn identity} spec)))
+             (:memento.core/key-fn spec identity)
+             (:memento.core/ret-fn spec identity)))
 
 (defmethod b/create-cache :memento.core/guava
   [spec f]
   (let [seed (:memento.core/seed spec)]
     (cond->
       (->GCache (.build (spec->builder spec false))
-                (merge #:memento.core {:key-fn identity :ret-fn identity} spec)
+                (:memento.core/key-fn spec identity)
+                (:memento.core/ret-fn spec identity)
                 f)
       (map? seed) (b/put-all seed))))
 
