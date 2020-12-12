@@ -5,4 +5,3 @@
  :aliases {:dev {:extra-paths ["test"]
                  :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}}
                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]}}}
-

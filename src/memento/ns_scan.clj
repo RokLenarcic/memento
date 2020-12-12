@@ -18,7 +18,7 @@
   "Scans loaded namespaces and attaches new caches to all vars that have
   :memento.core/cache key in meta of the var. Returns coll of affected vars.
 
-  The value of :memento.core/cache meta key is used as spec parameter
+  The value of :memento.core/cache meta key is used as conf parameter
   in memento.core/memo.
 
   Note that ONLY the loaded namespaces are considered.
@@ -32,6 +32,6 @@
   ([ns-black-list]
    (doall
      (for [v (vars ns-black-list)
-           :let [spec (::core/cache (meta v))]
-           :when spec]
-       (and (core/memo spec v) v)))))
+           :let [conf (::core/conf (meta v))]
+           :when conf]
+       (and (core/memo conf v) v)))))

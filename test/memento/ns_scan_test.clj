@@ -4,11 +4,11 @@
             [memento.ns-scan :as ns-scan]))
 
 (defn x
-  {::m/cache :x}
+  {::m/conf :x}
   [] 1)
 
 (defn y
-  {::m/cache {:size< 1}}
+  {::m/conf {:size< 1}}
   [] 1)
 
 (deftest test-ns-scan
