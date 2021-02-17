@@ -4,7 +4,7 @@
   <groupId>org.clojars.roklenarcic</groupId>
   <artifactId>memento</artifactId>
   <packaging>jar</packaging>
-  <version>0.8.4</version>
+  <version>0.9.0-beta1</version>
   <name>memento</name>
   <description>A library for function memoization.</description>
   <url>https://github.com/RokLenarcic/memento</url>

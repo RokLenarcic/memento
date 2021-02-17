@@ -2,24 +2,6 @@
 
 Why not use `core.memoize`?
 
-That library lacks an important feature: it does not guarantee that the function being memoized
-will be called only once per each key in the presence of multiple threads accessing it.
-
-First idea for this library was to create a `core.cache` caching provider that has that guarantee and 
-pass it to `core.memoize`. But the protocol itself does not allow for a good solution.
-
-Once I was convinced that I need to create a separate library I wanted to have more "killer" features
-that `core.memoize` does not have.
-
-## Important features
-
-#### Execute once semantics
-
-So the main reason for this library is that it needs to execute the memoized function once per parameter
-list value, even if having concurrent calls.
-
-It should not cache calls on exceptions.
-
 #### Multiple eviction strategies
 
 I've decided to use the Guava Cache and it allows similar cache eviction strategies than `core.memoize` like
@@ -40,9 +22,15 @@ functions is an important feature.
 #### Lexically scoped (request) cache
 
 A lot of the time the validity of cache data has nothing to do with time or count, but you
-want to get the cached number within a certain live scope such as request.
+want to get the cached data within a certain live scope such as request.
 
 This is a very important feature.
+
+#### Tagged evictions
+
+I need the capability to evict items based on a tag. If I have 100 memoized functions in a project
+that cache parts of a Person entity, then I want a command like 'evict all info in connection with person 4',
+which should evict multiple entries in multiple memoized caches.
 
 ## Nice to have features
 

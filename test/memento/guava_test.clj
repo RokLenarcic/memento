@@ -8,7 +8,7 @@
 (deftest cache-creation
   (testing "Creates a cache builder"
     (are [expected props]
-      (= expected (str (conf->builder props false)))
+      (= expected (str (conf->builder props)))
       "CacheBuilder{concurrencyLevel=12}" {mc/concurrency 12}
       "CacheBuilder{initialCapacity=11}" {mc/initial-capacity 11}
       "CacheBuilder{maximumSize=29}" {mc/size< 29}
@@ -20,7 +20,7 @@
       "CacheBuilder{}" {::mg/refresh 37}
       "CacheBuilder{}" {::mg/refresh [37 :d]}
       "CacheBuilder{}" {mcg/stats true}
-      "CacheBuilder{}" {mcg/kv-weight (fn [k v] 1)}
+      "CacheBuilder{}" {mcg/kv-weight (fn [f k v] 1)}
       "CacheBuilder{keyStrength=weak}" {mcg/weak-keys true}
       "CacheBuilder{valueStrength=weak}" {mcg/weak-values true}
       "CacheBuilder{valueStrength=soft}" {mcg/soft-values true}
@@ -39,9 +39,8 @@
   (testing "Creates a working cache"
     (let [a (atom 0)
           builder (conf->builder {mcg/weight< 34
-                                  mcg/kv-weight (fn [k v] 20)
+                                  mcg/kv-weight (fn [f k v] 20)
                                   mcg/ticker (fn [] (System/nanoTime))
-                                  mcg/removal-listener (fn [k v event] nil)}
-                                 false)
+                                  mcg/removal-listener (fn [f k v event] nil)})
           cache (.build builder)]
-      (is (= 2 (.get cache 1 (fn [] 2)))))))
+      (is (= 2 (.get cache (->CacheKey identity [1]) (fn [] 2)))))))

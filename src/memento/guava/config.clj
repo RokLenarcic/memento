@@ -1,19 +1,18 @@
 (ns memento.guava.config
   "Guava implementation config helpers.
 
-  Contains documented definitios of standard options of Guava cache config."
+  Contains documented definitions of standard options of Guava cache config."
   {:author "Rok Lenarčič"})
 
 (def removal-listener
-  "Corresponds to .removalListener on CacheBuilder.
+  "Cache setting, corresponds to .removalListener on CacheBuilder.
 
-  A function of three arguments (for guava cache: (fn [key value removal-cause] nil))
-  or four arguments (guava cache region: (fn [f key value removal-cause] nil)),
+  A function of four arguments (fn [f key value removal-cause] nil),
   that will be called whenever an entry is removed.
 
   The four arguments are:
 
-  - the function being cached (cache region 4 arg fn only)
+  - the function being cached
   - the key (arg-list transformed by key-fn if any)
   - the value (after ret-fn being applied)
   - com.google.common.cache.RemovalCause
@@ -22,7 +21,7 @@
   :memento.guava/removal-listener)
 
 (def weight<
-  "A long.
+  "Cache setting, a long.
 
   Specifies the maximum weight of entries the cache may contain. If using this option,
   you must provide `kw-weight` option for cache to calculate the weight of entries.
@@ -31,20 +30,19 @@
   :memento.guava/weight<)
 
 (def kv-weight
-  "A function of 2-arguments (for guava cache: (fn [key value] int-weight))
-  or 3 arguments (guava cache region: (fn [f key value] int-weight)),
+  "Cache setting, a function of 3 arguments (fn [f key value] int-weight),
   that will be used to determine the weight of entries.
 
   It should return an int, the weight of the entry.
 
   The 3 arguments are:
-  - the first argument is the function being cached (cache region 3 arg fn only)
+  - the first argument is the function being cached
   - the second argument is the key (arg-list transformed by key-fn if any)
   - the third argument is the value (after ret-fn being applied)"
   :memento.guava/kv-weight)
 
 (def weak-keys
-  "Corresponds to .weakKeys on CacheBuilder.
+  "Cache setting, corresponds to .weakKeys on CacheBuilder.
 
   Boolean flag, enabling storing keys using weak references.
 
@@ -59,7 +57,7 @@
   :memento.guava/weak-keys)
 
 (def weak-values
-  "Corresponds to .weakValues on CacheBuilder.
+  "Cache setting, corresponds to .weakValues on CacheBuilder.
 
   Boolean flag, enabling storing values using weak references.
 
@@ -67,7 +65,7 @@
   :memento.guava/weak-values)
 
 (def soft-values
-  "Corresponds to .softValues on CacheBuilder.
+  "Cache setting, corresponds to .softValues on CacheBuilder.
 
   Boolean flag, enabling storing values using soft references.
 
@@ -77,18 +75,17 @@
   :memento.guava/soft-values)
 
 (def stats
-  "Boolean flag, enabling collection of stats.
+  "Cache setting, boolean flag, enabling collection of stats.
 
   Corresponds to .enableStats on CacheBuilder.
 
-  You can retrieve a cache's stats by using memento.guava/stats or
-  memento.guava/region-stats.
+  You can retrieve a cache's stats by using memento.guava/stats.
 
   Returns com.google.common.cache.CacheStats instance or nil."
   :memento.guava/stats)
 
 (def ticker
-  "Corresponds to .ticker on CacheBuilder.
+  "Cache setting, corresponds to .ticker on CacheBuilder.
 
   A function of zero arguments that should return current nano time.
   This is used when doing time based eviction.

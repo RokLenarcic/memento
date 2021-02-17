@@ -6,13 +6,24 @@
 
 (def default-blacklist [#"^clojure\." #"^nrepl\."])
 
+(defn not-blacklisted?
+  "Returns true if namespace is not blacklisted."
+  [black-list n]
+  (let [ns-str (str (ns-name n))]
+    (not-any? #(re-find % ns-str) black-list)))
+
+(defn memoize-if-configured
+  "If var has :memento.core/cache meta key present, use that as memoization
+  configuration. Returns the var or nil if not memoized."
+  [v]
+  (when-let [conf (::core/cache (meta v))] (core/memo v conf) v))
+
 (defn vars
   [black-list]
-  (flatten
-    (for [n (all-ns)
-          :let [ns-str (str (ns-name n))]
-          :when (not-any? #(re-find % ns-str) black-list)]
-      (or (vals (ns-interns n)) []))))
+  (for [n (all-ns)
+        :when (not-blacklisted? black-list n)
+        v (vals (ns-interns n))]
+    v))
 
 (defn attach-caches
   "Scans loaded namespaces and attaches new caches to all vars that have
@@ -30,8 +41,6 @@
   ([]
    (attach-caches default-blacklist))
   ([ns-black-list]
-   (doall
-     (for [v (vars ns-black-list)
-           :let [conf (::core/conf (meta v))]
-           :when conf]
-       (and (core/memo conf v) v)))))
+   (filterv
+     memoize-if-configured
+     (vars ns-black-list))))
