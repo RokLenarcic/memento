@@ -470,6 +470,6 @@ Version 0.9.0 introduced many breaking changes.
 
 ## License
 
-Copyright © 2020 Rok Lenarčič
+Copyright © 2020-2021 Rok Lenarčič
 
 Licensed under the term of the Eclipse Public License - v 2.0, see LICENSE.
