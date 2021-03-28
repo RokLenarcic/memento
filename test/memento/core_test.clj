@@ -277,3 +277,26 @@
       (is (= {[1] 1} (do (f 1) (as-map f))))
       (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
       (is (= {[2] 2} (do (memo-clear-tag! :tag 1) (as-map f)))))))
+
+(deftest fire-event-test
+  (testing "event is fired on referenced cache"
+    (let [access-nums (atom 0)
+          inner-f (fn [x] (swap! access-nums inc) x)
+          evt-f (fn [this evt]
+                  (m/memo-add! this {[evt] (inc evt)}))
+          x (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f mc/tags [:a]})
+          y (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f})]
+      (is (= 1 (x 1)))
+      (is (= 1 (x 1)))
+      (is (= 1 @access-nums))
+      (m/fire-event! x 4)
+      (m/fire-event! :a 5)
+      (m/fire-event! y 6)
+      (is (= {[1] 1
+              [4] 5
+              [5] 6} (m/as-map x)))
+      (is (= {[6] 7} (m/as-map y)))
+      (is (= 5 (x 4)))
+      (is (= 6 (x 5)))
+      (is (= 7 (y 6)))
+      (is (= 1 @access-nums)))))

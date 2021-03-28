@@ -121,14 +121,24 @@
   [tag]
   (get @mount/tags tag []))
 
+(defn fire-event!
+  "Fire an event payload to the single cached function or all tagged functions, if tag
+  is provided."
+  [f-or-tag evt]
+  (if-let [f (mount/mount-point f-or-tag)]
+    (mount/handle-event f evt)
+    (->> (mounts-by-tag f-or-tag)
+         (eduction (map #(mount/handle-event % evt)))
+         dorun)))
+
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."
   [tag id]
   (let [secondary-key [tag id]]
     (->> (mounts-by-tag tag)
-         (eduction (comp (map mount/mounted-cache)
-                         (distinct)
-                         (map #(base/invalidate-id % secondary-key))))
+         (eduction (map mount/mounted-cache)
+                   (distinct)
+                   (map #(base/invalidate-id % secondary-key)))
          dorun)))
 
 (defn update-tag-caches!
@@ -154,3 +164,17 @@
   [tag cache-fn & body]
   `(binding [mount/*caches* (mount/update-existing mount/*caches* (get @mount/tags ~tag []) ~cache-fn)]
      ~@body))
+
+(defn evt-cache-add
+  "Convenience function. It creates or wraps event handler fn,
+  with an implementation which expects an event to be a vector of
+  [event-type payload], it checks for matching event type and inserts
+  the result of (->entries payload) into the cache."
+  ([evt-type ->entries] (evt-cache-add (constantly nil) evt-type ->entries))
+  ([evt-fn evt-type ->entries]
+   (fn [mountp evt]
+     (when (and (vector? evt)
+                (= (count evt) 2)
+                (= evt-type (first evt)))
+       (memo-add! mountp (->entries (second evt))))
+     (evt-fn mountp evt))))

@@ -8,7 +8,8 @@
 (def ^:dynamic *caches* "Contains map of mount point to cache instance" {})
 (def tags "Map tag to mount-point" (atom {}))
 
-(def configuration-props [config/key-fn config/ret-fn config/seed config/tags])
+(def configuration-props [config/key-fn config/ret-fn config/seed config/tags
+                          config/evt-fn])
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"
@@ -34,28 +35,31 @@
   (cached [this args] "Return cached value, possibly invoking the function with the args to
     obtain the value. This should be a thread-safe atomic operation.")
   (get-tags [this] "Coll of tags for this mount point")
+  (handle-event [this evt] "Handles event using internal event handling mechanism, usually a function")
   (invalidate [this args] "Invalidate entry for args, returns Cache")
   (invalidate-all [this] "Invalidate all entries, returns Cache")
   (mounted-cache [this] "Returns currently mounted Cache.")
   (put-all [this args-to-vals] "Add entries to cache, returns Cache")
   (original-function [this] "Returns the original function"))
 
-(defrecord UntaggedMountPoint [cache segment]
+(defrecord UntaggedMountPoint [cache segment evt-handler]
   MountPoint
   (as-map [this] (base/as-map cache segment))
   (cached [this args] (base/cached cache segment args))
   (get-tags [this] [])
+  (handle-event [this evt] (evt-handler this evt))
   (invalidate [this args] (base/invalidate cache segment args))
   (invalidate-all [this] (base/invalidate cache segment))
   (mounted-cache [this] cache)
   (put-all [this args-to-vals] (base/put-all cache segment args-to-vals))
   (original-function [this] (:f segment)))
 
-(defrecord TaggedMountPoint [tags segment]
+(defrecord TaggedMountPoint [tags segment evt-handler]
   MountPoint
   (as-map [this] (base/as-map (*caches* this base/no-cache) segment))
   (cached [this args] (base/cached (*caches* this base/no-cache) segment args))
   (get-tags [this] tags)
+  (handle-event [this evt] (evt-handler this evt))
   (invalidate [this args] (base/invalidate (*caches* this base/no-cache) segment args))
   (invalidate-all [this] (base/invalidate (*caches* this base/no-cache) segment))
   (mounted-cache [this] (*caches* this base/no-cache))
@@ -74,17 +78,18 @@
   "Create mount record by specified map conf"
   [f cache mount-conf]
   (let [key-fn (config/key-fn mount-conf identity)
+        evt-fn (config/evt-fn mount-conf (fn [_ _] nil))
         f* (if-let [ret-fn (config/ret-fn mount-conf)]
              (fn [& args] (ret-fn args (apply f args)))
              f)
         segment (base/->Segment f* key-fn nil)]
     (if-let [t (config/tags mount-conf)]
       (let [wrapped-t (if (sequential? t) t (vector t))
-            mp (->TaggedMountPoint wrapped-t segment)]
+            mp (->TaggedMountPoint wrapped-t segment evt-fn)]
         (alter-var-root #'*caches* assoc mp cache)
         (swap! tags assoc-cache-tags wrapped-t mp)
         mp)
-      (->UntaggedMountPoint cache segment))))
+      (->UntaggedMountPoint cache segment evt-fn))))
 
 (defn bind
   "Bind a cache to a fn or var. Internal function."

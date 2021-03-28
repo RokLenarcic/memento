@@ -53,6 +53,16 @@
   values in 'do-not-cache' object, that prevents caching or wrap with tagged IDs."
   :memento.core/ret-fn)
 
+(def evt-fn
+  "Function bind setting, a function that is invoked when any event is fired at the function.
+
+   (fn [mnt-point event] void)
+
+   Useful generally to push data into the related cache, the mnt-point parameter implement MountPoint protocol
+   so you can invoke memo-add! and such on it. The event can be any data, it's probably best to come up with
+   a format that enables the functions that receive the event to be able to tell them apart."
+  :memento.core/evt-fn)
+
 (def seed
   "Function bind setting, a map of cache keys to values that will be preloaded when cache is bound."
   :memento.core/seed)

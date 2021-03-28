@@ -208,6 +208,16 @@ Example building on previous suggested `cache/inf` cache configuration:
 When creating the cache key, remove db connection, so the cache uses `[account-id person-id]` as key.
 Thus calling the function with different db connection but same ids returns the cached value.
 
+Another example:
+```clojure
+(defn return-my-user-info-json [http-request]
+  (load-user (-> http-request :session :user-id)))
+
+;; clearly the cache hit is based on a deeply nested property out of a huge request map
+;; so we want to use that as basis for caching
+(m/memo #'return-my-user-info-json (assoc cache/inf-cache mc/key-fn #(-> % first :session :user-id)))
+```
+
 **This is both a mount conf setting, and a cache setting.** The obvious difference is that specifying
 `key-fn` for the Cache will affect all functions using that cache and in mount conf, only that one function will
 be affected. If using 2-arg `memo`, then this setting is applied to mount conf.
@@ -405,7 +415,7 @@ Later you can invalidate tagged entries:
 (m/memo-clear-tag! :person 1)
 ```
 
-#### Namespace scan
+## Namespace scan
 
 You can scan loaded namespaces for annotated vars and automatically create caches.
 The scan looks for Vars with `:memento.core/cache` key in the meta.
@@ -444,12 +454,118 @@ Calling `attach-caches` multiple times attaches new caches, replaces existing ca
 Namespaces `clojure.*` and `nrepl.*` are not scanned by default, but you can
 provide your own blacklists, see doc.
 
-#### Skip/disable caching
+## Events
+
+You can fire an event at a memoized function. The target can be a particular function (or MountPoint), or
+you can specify a tag (and all tagged functions get the event). Each function can configure its own handler for
+events. Event can be any object, I suggest you use a structure that will enable event handlers to distinguish
+events.
+
+Event handler is a function of two arguments, the MountPoint it's been triggered (most core functions work on those)
+and the event.
+
+Main use case is to enable adding entries to different functions from same data. Example:
+
+```clojure
+(defn get-project-name
+  "Returns project name"
+  [project-id])
+
+(m/memo #'get-project-name inf)
+
+(defn get-project-owner
+  "Returns project's owner user ID"
+  [project-id])
+
+(m/memo #'get-project-owner inf)
+
+(defn get-user-projects
+  "Returns a big expensive list"
+  [user-id]
+  (let [project-list '...]
+    project-list))
+```
+
+In that example, when `get-user-projects` is called, we might load over a 100 projects, and we'd hate to waste that
+and not inform `get-project-name` and `get-project-owner` about the facts we've established here, especially since we
+might be calling these smaller functions in a loop right after fetching the big list.
+
+Here's a way to make sure data is reused by manually pushing entries into the caches as supported by most caching libs:
+
+```clojure
+(defn get-user-projects
+  "Returns a big expensive list"
+  [user-id]
+  (let [project-list '...]
+    ;; preload entries for seen projects into caches
+    (m/memo-add! get-project-name
+                 (zipmap (map (comp list :id) project-list)
+                         (map :name project-list)))
+    (m/memo-add! get-project-owner
+                 (zipmap (map (comp list :id) project-list)
+                         (repeat user-id)))
+    project-list))
+```
+
+The problem with this solution is that it is an absolute nightmare to maintain:
+- adding/removing data consuming functions like `get-project-name` means that I have to also fix producing
+  functions like `get-user-projects`
+- worse yet, the producer function has to be aware of what the argument list of consuming function looks like
+  and how the output of that function is related to that. For instance if I change arg list for `get-project-owner`
+  I must fix the `get-user-projects` code that pushes cache entries
+- if I want additional producers like `get-user-projects` then each such producer must implement all these changes
+  and each has a massive block to feed all the consumers
+
+
+I can use events instead and co-locate the code that feeds the cache with the function:
+
+```clojure
+(defn get-project-name
+  "Returns project name"
+  [project-id])
+
+(m/memo #'get-project-name
+        (assoc inf
+          mc/evt-fn (m/evt-cache-add
+                      :project-seen
+                      (fn [{:keys [name id]}] {[id] name}))
+          mc/tags [:project]))
+
+(defn get-project-owner
+  "Returns project's owner user ID"
+  [project-id])
+
+(m/memo #'get-project-owner
+        (assoc inf
+          mc/evt-fn (m/evt-cache-add
+                      :project-seen
+                      (fn [{:keys [id user-id]}] {[id] user-id}))
+          mc/tags [:project]))
+
+(defn get-user-projects
+  "Returns a big expensive list"
+  [user-id]
+  (let [project-list '...]
+    (doseq [p project-list]
+      (m/fire-event! :project [:project-seen (assoc p :user-id user-id)]))
+    project-list))
+```
+
+We're using the `evt-cache-add` convenience function that assumes event shape is a 
+vector of type + payload and that the intent is to add entries to the cache.
+
+In this case the producer function is only concerned with firing events at tagged caches.
+It doesn't need to consider the number of shape of consumers.
+
+The caching declaration of consumer functions is where there the cache feeding logic is located,
+which makes things manageable.
+
+## Skip/disable caching
 
 If you set `-Dmemento.enabled=false` JVM option (or change `memento.config/enabled?` var root binding), 
 then all caches created will `memento.base/no-cache`, which does no caching. 
 
-#### Reload guards
+## Reload guards
 
 When you memoize a function with tags, a special object is created that will clean up in internal tag
 mappings when memoized function is GCed. It's important when reloading namespaces to remove mount points

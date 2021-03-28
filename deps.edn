@@ -1,19 +1,8 @@
-{:paths ["src" "classes"]
+{:paths ["src"]
 
  :deps {com.google.guava/guava {:mvn/version "28.0-jre"}}
 
  :aliases {:dev {:extra-paths ["test"]
-                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}
-                              com.clojure-goes-fast/clj-memory-meter {:mvn/version "0.1.3"}}
+                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}}
                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"
-                            "-Djdk.attach.allowAttachSelf"]}
-           :deploy {:extra-deps {slipset/deps-deploy {:mvn/version "RELEASE"}}
-                    :exec-fn deps-deploy.deps-deploy/deploy
-                    :exec-args {:installer :remote
-                                :sign-releases? true
-                                :artifact "memento.jar"}}
-           :depstar
-           {:replace-deps
-            {seancorfield/depstar {:mvn/version "2.0.171"}}
-            :ns-default hf.depstar
-            :exec-args {}}}}
+                            "-Djdk.attach.allowAttachSelf"]}}}
