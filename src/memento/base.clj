@@ -10,6 +10,10 @@
 (def absent "Value that signals absent key." (Object.))
 
 (defrecord EntryMeta [v no-cache? tag-idents])
+; Segment has 3 properties:
+; - fn to run
+; - key-fn to apply for keys from this segment
+; - segment ID, use this rather than f to separate segments in cache
 (defrecord Segment [f key-fn id])
 
 (defn unwrap-meta [o] (if (instance? EntryMeta o) (:v o) o))
@@ -70,3 +74,14 @@
     (or (config/timeunits unit)
         (throw (ex-info (str "Unknown cache time unit " unit)
                         {:tu unit})))))
+
+(defn base-create-cache
+  "Create a cache.
+
+  A conf is a map of cache settings, see memento.config namespace for names of settings."
+  [conf]
+  (if (satisfies? Cache conf)
+    conf
+    (if config/enabled?
+      (new-cache (merge {config/type config/*default-type*} conf))
+      no-cache)))

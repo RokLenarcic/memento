@@ -168,8 +168,8 @@
     (->GCache conf
               (.build (conf->builder conf sec-index))
               (if-let [key-fn (:memento.core/key-fn conf)]
-                (fn [segment args] (->CacheKey (:f segment) (key-fn ((:key-fn segment) args))))
-                (fn [segment args] (->CacheKey (:f segment) ((:key-fn segment) args))))
+                (fn [segment args] (->CacheKey (:id segment) (key-fn ((:key-fn segment) args))))
+                (fn [segment args] (->CacheKey (:id segment) ((:key-fn segment) args))))
               (:memento.core/ret-fn conf)
               sec-index)))
 

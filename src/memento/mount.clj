@@ -82,7 +82,7 @@
         f* (if-let [ret-fn (config/ret-fn mount-conf)]
              (fn [& args] (ret-fn args (apply f args)))
              f)
-        segment (base/->Segment f* key-fn nil)]
+        segment (base/->Segment f* key-fn (get mount-conf ::name f))]
     (if-let [t (config/tags mount-conf)]
       (let [wrapped-t (if (sequential? t) t (vector t))
             mp (->TaggedMountPoint wrapped-t segment evt-fn)]
@@ -95,7 +95,7 @@
   "Bind a cache to a fn or var. Internal function."
   [fn-or-var mount-conf cache]
   (if (var? fn-or-var)
-    (alter-var-root fn-or-var bind mount-conf cache)
+    (alter-var-root fn-or-var bind (assoc (reify-mount-conf mount-conf) ::name (str fn-or-var)) cache)
     (let [mount-conf (reify-mount-conf mount-conf)
           cache-mount (create-mount fn-or-var cache mount-conf)
           reload-guard (when (and config/reload-guards? (config/tags mount-conf))

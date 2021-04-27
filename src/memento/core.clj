@@ -4,6 +4,7 @@
   (:require [memento.base :as base]
             [memento.config :as config]
             [memento.guava]
+            [memento.multi :as multi]
             [memento.mount :as mount])
   (:import (memento.base EntryMeta)))
 
@@ -30,11 +31,7 @@
 
   A conf is a map of cache settings, see memento.config namespace for names of settings."
   [conf]
-  (if (satisfies? base/Cache conf)
-    conf
-    (if config/enabled?
-      (base/new-cache (merge {config/type config/*default-type*} conf))
-      base/no-cache)))
+  (base/base-create-cache conf))
 
 (defn bind
   "Bind the cache to a function or a var. If a var is specified, then var root
@@ -178,3 +175,54 @@
                 (= evt-type (first evt)))
        (memo-add! mountp (->entries (second evt))))
      (evt-fn mountp evt))))
+
+(defn tiered
+  "Creates a configuration for a tiered cache. Both parameters are either a conf map or a cache.
+
+  Entry is fetched from cache, delegating to upstream is not found. After the operation
+  the entry is in both caches.
+
+  Useful when upstream is a big cache that outside the JVM, but it's not that inexpensive, so you
+  want a local smaller cache in front of it.
+
+  Invalidation operations also affect upstream. Other operations only affect local cache."
+  [cache upstream]
+  {::type ::tiered
+   ::multi/cache cache
+   ::multi/upstream upstream})
+
+(defn consulting
+  "Creates a configuration for a consulting tiered cache. Both parameters are either a conf map or a cache.
+
+  Entry is fetched from cache, if not found, the upstream is asked for entry if present (but not to make one
+  in the upstream).
+
+  After the operation, the entry is in local cache, upstream is unchanged.
+
+  Useful when you want to consult a long term upstream cache for existing entries, but you don't want any
+  entries being created for the short term cache to be pushed upstream.
+
+  Invalidation operations also affect upstream. Other operations only affect local cache."
+  [cache upstream]
+  {::type ::consulting
+   ::multi/cache cache
+   ::multi/upstream upstream})
+
+(defn daisy
+  "Creates a configuration for a daisy chained cache. Cache parameter is a conf map or a cache.
+
+  Entry is returned from cache IF PRESENT, otherwise upstream is hit. The returned value
+  is NOT added to cache.
+
+  After the operation the entry is either in local or upstream cache.
+
+  Useful when you don't want entries from upstream accumulating in local
+  cache, and you're feeding the local cache via some other means:
+  - a preloaded fixed cache
+  - manually adding entries
+
+  Invalidation operations also affect upstream. Other operations only affect local cache."
+  [cache upstream]
+  {::type ::daisy
+   ::multi/cache cache
+   ::multi/upstream upstream})
