@@ -2,7 +2,6 @@
   "Memoization library."
   {:author "Rok Lenarčič"}
   (:require [memento.base :as base]
-            [memento.config :as config]
             [memento.guava]
             [memento.multi :as multi]
             [memento.mount :as mount])

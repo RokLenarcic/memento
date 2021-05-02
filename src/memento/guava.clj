@@ -14,8 +14,7 @@
 
 (defrecord CacheKey [f args])
 
-(defn val->cval "Wrap a nil into EntryMeta" [v]
-  (if (nil? v) (base/->EntryMeta nil false #{}) v))
+(def nil-entry (base/->EntryMeta nil false #{}))
 
 (defn process-non-cached
   "Unwrap EntryMeta objects and throw exception to prevent caching if no-cache? is set."
@@ -67,7 +66,7 @@
   "Converts value into a representation that is suitable for the Cache (no nils),
   and also registers it with the secondary index. Returned value should not be discarded."
   [sec-index k v]
-  (sec-index-conj-entry sec-index k (val->cval v)))
+  (sec-index-conj-entry sec-index k (if (nil? v) nil-entry v)))
 
 (defn ^CacheBuilder conf->builder
   "Creates and configures common parameters on the builder."

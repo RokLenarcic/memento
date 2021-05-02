@@ -21,8 +21,11 @@
 (defprotocol Cache
   "Protocol for Cache. It houses entries for multiple functions.
 
-  Args-key is a cache key, presumably created from argument list, and it's used to determine
-  'same args' for caching purposes. Usually it's same as args."
+  Most functions receive a Segment object that should be used to partition for different functions
+  and using other :
+  - id: use for separating caches, it is either name specified by user's config, or var name or function object
+  - key-fn: key-fn from mount point, use this to generate cache key
+  - f: use this function to load values"
   (conf [this] "Return the conf for this cache.")
   (cached [this segment args]
     "Return the cache value.

@@ -7,14 +7,10 @@
   (:import (memento.base Cache)))
 
 (def inf {mc/type mc/guava})
-(defn size< [max-size]
-  (assoc inf mc/size< max-size))
-(defn ret-fn [f]
-  (assoc inf mc/ret-fn f))
 
 (def id (memo identity inf))
 
-(defn- check-core-features
+(defn check-core-features
   [factory]
   (let [mine (factory identity)
         them (memoize identity)]
@@ -52,8 +48,8 @@
       (every? identity (pvalues (slow-identity 5) (slow-identity 5)))
       (is (= @access-count 1))))
   (testing "That exceptions are correctly unwrapped."
-    (is (thrown? ClassNotFoundException ((memo (fn [] (throw (ClassNotFoundException.))) inf))))
-    (is (thrown? IllegalArgumentException ((memo (fn [] (throw (IllegalArgumentException.))) inf)))))
+    (is (thrown? ClassNotFoundException ((factory (fn [] (throw (ClassNotFoundException.)))))))
+    (is (thrown? IllegalArgumentException ((factory (fn [] (throw (IllegalArgumentException.))))))))
   (testing "Null return caching."
     (let [access-count (atom 0)
           mine (factory (fn [] (swap! access-count inc) nil))]
@@ -63,10 +59,11 @@
 
 (deftest test-memo (check-core-features #(memo % inf)))
 
-(deftest test-lru
-  (let [mine (memo identity (size< 2))]
+(defn lru-test [base-cache-conf]
+  (let [cache-conf (assoc base-cache-conf mc/size< 2)
+        mine (memo identity cache-conf)]
     ;; First check that the basic memo behavior holds
-    (check-core-features #(memo % (size< 2)))
+    (check-core-features #(memo % cache-conf))
 
     ;; Now check FIFO-specific behavior
     (testing "that when the limit threshold is not breached, the cache works like the basic version"
@@ -82,32 +79,48 @@
                  44                 (mine 44)
                  {[44] 44, [43] 43} (as-map mine)))))
 
+(deftest guava-test-lru
+  (testing "LRU works for Guava"
+    (lru-test inf)))
 
-(deftest test-ttl
+(defn ttl-test [base-cache-conf]
   ;; First check that the basic memo behavior holds
-  (check-core-features #(memo % (assoc inf mc/ttl 2)))
+  (check-core-features #(memo % (assoc base-cache-conf mc/ttl 2)))
 
   ;; Now check TTL-specific behavior
-  (let [mine (memo identity (assoc inf mc/ttl [2 :s]))]
+  (let [mine (memo identity (assoc base-cache-conf mc/ttl [2 :s]))]
     (are [x y] =
                42        (mine 42)
                {[42] 42} (as-map mine))
     (Thread/sleep 3000)
     (are [x y] =
                43        (mine 43)
-               {[43] 43} (as-map mine)))
+               {[43] 43} (as-map mine))))
 
-  (let [mine  (memo identity (assoc inf mc/ttl [5 :ms]))
-        limit 2000000
-        start (System/currentTimeMillis)]
-    (loop [n 0]
-      (if-not (mine 42)
-        (do
-          (is false (str  "Failure on call " n)))
-        (if (< n limit)
-          (recur (+ 1 n)))))
-    (println "ttl test completed" limit "calls in"
-             (- (System/currentTimeMillis) start) "ms")))
+(deftest guava-test-ttl
+  (testing "TTL works for Guava"
+    (ttl-test inf))
+  (testing "Speed for Guava"
+    (let [mine  (memo identity (assoc inf mc/ttl [5 :ms]))
+          limit 2000000
+          start (System/currentTimeMillis)]
+      (loop [n 0]
+        (if-not (mine 42)
+          (do
+            (is false (str  "Failure on call " n)))
+          (if (< n limit)
+            (recur (+ 1 n)))))
+      (println "ttl test completed" limit "calls in"
+               (- (System/currentTimeMillis) start) "ms"))))
+
+(defn memo-clear-test
+  [base-cache-conf]
+  (let [x (memo identity base-cache-conf)]
+    (x 1)
+    (x 2)
+    (is (= {[1] 1} {[2] 2} (as-map x)))
+    (memo-clear! x)
+    (is (= {} (as-map x)))))
 
 (deftest test-memoization-utils
   (let [CACHE_IDENTITY (:memento.mount/mount (meta id))]
@@ -183,37 +196,49 @@
     (is (= 3 (test-var-fn 1)))
     (is (= @test-atom 1))))
 
-(deftest seed-test
+(defn seed-test [base-cache-conf]
   (testing "that seeding a function works"
-    (let [cached (memo + (assoc inf mc/seed {[3 5] 100 [4 5] 2000}))]
+    (let [cached (memo + (assoc base-cache-conf mc/seed {[3 5] 100 [4 5] 2000}))]
       (is (= 50 (cached 20 30)))
       (is (= 1 (cached -1 2)))
       (is (= 100 (cached 3 5)))
       (is (= 2000 (cached 4 5))))))
 
-(deftest key-fn-test
+(deftest guava-seed-test
+  (seed-test inf))
+
+(defn key-fn-test
+  [base-cache-conf]
   (testing "that key-fn works for direct cache"
-    (let [cached (memo (fn [& ids] ids) (assoc inf mc/key-fn set))]
+    (let [cached (memo (fn [& ids] ids) (assoc base-cache-conf mc/key-fn set))]
       (is (= [3 2 1] (cached 3 2 1)))
       (is (= [3 2 1] (cached 1 2 3)))
       (is (= [3 2 1] (cached 1 3 3 2 2 2)))
       (is (= [2 1] (cached 2 1))))))
 
-(deftest ret-fn-non-cached
-  (testing "that ret-fn is ran"
-    (is (= -4 ((memo + (ret-fn #(* -1 %2))) 2 2)))
-    (is (= true ((memo (constantly nil) (ret-fn #(nil? %2))) 1)))
-    (is (= nil ((memo + (ret-fn (constantly nil))) 2 2))))
-  (testing "that non-cached is respected"
-    (let [access-nums (atom [])
-          f (memo
-              (fn [number]
-                (swap! access-nums conj number)
-                (if (zero? (mod number 3)) (do-not-cache number) number))
-              (ret-fn #(if (and (number? %2) (zero? (mod %2 5))) (do-not-cache %2) %2)))]
-      (is (= (range 20)) (map f (range 20)))
-      (is (= (range 20)) (map f (range 20)))
-      (is (= (concat (range 20) [0 3 5 6 9 10 12 15 18]) @access-nums)))))
+(deftest guava-key-fn-test
+  (key-fn-test inf))
+
+(defn ret-fn-non-cached
+  [base-cache-conf]
+  (let [ret-fn (fn [f] (assoc base-cache-conf mc/ret-fn f))]
+    (testing "that ret-fn is ran"
+      (is (= -4 ((memo + (ret-fn #(* -1 %2))) 2 2)))
+      (is (= true ((memo (constantly nil) (ret-fn #(nil? %2))) 1)))
+      (is (= nil ((memo + (ret-fn (constantly nil))) 2 2))))
+    (testing "that non-cached is respected"
+      (let [access-nums (atom [])
+            f (memo
+                (fn [number]
+                  (swap! access-nums conj number)
+                  (if (zero? (mod number 3)) (do-not-cache number) number))
+                (ret-fn #(if (and (number? %2) (zero? (mod %2 5))) (do-not-cache %2) %2)))]
+        (is (= (range 20)) (map f (range 20)))
+        (is (= (range 20)) (map f (range 20)))
+        (is (= (concat (range 20) [0 3 5 6 9 10 12 15 18]) @access-nums))))))
+
+(deftest guava-ret-fn-non-cached
+  (ret-fn-non-cached inf))
 
 (deftest get-tags-test
   (testing "tags get returned"
@@ -264,6 +289,13 @@
       (is (= 50 (f 10)))
       (is (= 50 @access-nums)))))
 
+(defn cache-tagged-eviction-test
+  [base-cache-conf]
+  (let [f (memo (fn [x] (with-tag-id x :tag x)) :tag base-cache-conf)]
+    (is (= {} (as-map f)))
+    (is (= {[1] 1} (do (f 1) (as-map f))))
+    (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
+    (is (= {[2] 2} (do (memo-clear-tag! :tag 1) (as-map f))))))
 
 (deftest tagged-eviction-test
   (testing "adding tag ID info"
@@ -272,31 +304,31 @@
     (is (= (base/->EntryMeta 1 true #{[:person 55] [:account 6]})
            (-> 1 (with-tag-id :person 55) (with-tag-id :account 6) do-not-cache))))
   (testing "tagged eviction"
-    (let [f (memo (fn [x] (with-tag-id x :tag x)) :tag inf)]
-      (is (= {} (as-map f)))
-      (is (= {[1] 1} (do (f 1) (as-map f))))
-      (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
-      (is (= {[2] 2} (do (memo-clear-tag! :tag 1) (as-map f)))))))
+    (cache-tagged-eviction-test inf)))
 
-(deftest fire-event-test
+(defn fire-event-test
+  [base-cache-conf]
+  (let [access-nums (atom 0)
+        inner-f (fn [x] (swap! access-nums inc) x)
+        evt-f (fn [this evt]
+                (m/memo-add! this {[evt] (inc evt)}))
+        x (m/memo inner-f (assoc base-cache-conf mc/evt-fn evt-f mc/tags [:a]))
+        y (m/memo inner-f (assoc base-cache-conf mc/evt-fn evt-f))]
+    (is (= 1 (x 1)))
+    (is (= 1 (x 1)))
+    (is (= 1 @access-nums))
+    (m/fire-event! x 4)
+    (m/fire-event! :a 5)
+    (m/fire-event! y 6)
+    (is (= {[1] 1
+            [4] 5
+            [5] 6} (m/as-map x)))
+    (is (= {[6] 7} (m/as-map y)))
+    (is (= 5 (x 4)))
+    (is (= 6 (x 5)))
+    (is (= 7 (y 6)))
+    (is (= 1 @access-nums))))
+
+(deftest guava-fire-event-test
   (testing "event is fired on referenced cache"
-    (let [access-nums (atom 0)
-          inner-f (fn [x] (swap! access-nums inc) x)
-          evt-f (fn [this evt]
-                  (m/memo-add! this {[evt] (inc evt)}))
-          x (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f mc/tags [:a]})
-          y (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f})]
-      (is (= 1 (x 1)))
-      (is (= 1 (x 1)))
-      (is (= 1 @access-nums))
-      (m/fire-event! x 4)
-      (m/fire-event! :a 5)
-      (m/fire-event! y 6)
-      (is (= {[1] 1
-              [4] 5
-              [5] 6} (m/as-map x)))
-      (is (= {[6] 7} (m/as-map y)))
-      (is (= 5 (x 4)))
-      (is (= 6 (x 5)))
-      (is (= 7 (y 6)))
-      (is (= 1 @access-nums)))))
+    (fire-event-test inf)))
