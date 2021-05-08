@@ -9,7 +9,7 @@
 (def tags "Map tag to mount-point" (atom {}))
 
 (def configuration-props [config/key-fn config/ret-fn config/seed config/tags
-                          config/evt-fn])
+                          config/evt-fn config/id])
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"
@@ -34,6 +34,8 @@
   as implementation might provide a weakly consistent view of the cache.")
   (cached [this args] "Return cached value, possibly invoking the function with the args to
     obtain the value. This should be a thread-safe atomic operation.")
+  (if-cached [this args]
+    "Return cached value if present in cache or memento.base/absent otherwise.")
   (get-tags [this] "Coll of tags for this mount point")
   (handle-event [this evt] "Handles event using internal event handling mechanism, usually a function")
   (invalidate [this args] "Invalidate entry for args, returns Cache")
@@ -46,6 +48,7 @@
   MountPoint
   (as-map [this] (base/as-map cache segment))
   (cached [this args] (base/cached cache segment args))
+  (if-cached [this args] (base/if-cached cache segment args))
   (get-tags [this] [])
   (handle-event [this evt] (evt-handler this evt))
   (invalidate [this args] (base/invalidate cache segment args))
@@ -58,6 +61,7 @@
   MountPoint
   (as-map [this] (base/as-map (*caches* this base/no-cache) segment))
   (cached [this args] (base/cached (*caches* this base/no-cache) segment args))
+  (if-cached [this args] (base/if-cached (*caches* this base/no-cache) segment args))
   (get-tags [this] tags)
   (handle-event [this evt] (evt-handler this evt))
   (invalidate [this args] (base/invalidate (*caches* this base/no-cache) segment args))
@@ -82,7 +86,7 @@
         f* (if-let [ret-fn (config/ret-fn mount-conf)]
              (fn [& args] (ret-fn args (apply f args)))
              f)
-        segment (base/->Segment f* key-fn (get mount-conf ::name f))]
+        segment (base/->Segment f* key-fn (mount-conf config/id f))]
     (if-let [t (config/tags mount-conf)]
       (let [wrapped-t (if (sequential? t) t (vector t))
             mp (->TaggedMountPoint wrapped-t segment evt-fn)]
@@ -95,7 +99,10 @@
   "Bind a cache to a fn or var. Internal function."
   [fn-or-var mount-conf cache]
   (if (var? fn-or-var)
-    (alter-var-root fn-or-var bind (assoc (reify-mount-conf mount-conf) ::name (str fn-or-var)) cache)
+    (let [mount-conf (-> mount-conf
+                         reify-mount-conf
+                         (update config/id #(or % (str fn-or-var))))]
+      (alter-var-root fn-or-var bind mount-conf cache))
     (let [mount-conf (reify-mount-conf mount-conf)
           cache-mount (create-mount fn-or-var cache mount-conf)
           reload-guard (when (and config/reload-guards? (config/tags mount-conf))

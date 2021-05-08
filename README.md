@@ -616,6 +616,20 @@ cache, and you're feeding the local cache via some other means:
 - a preloaded fixed cache
 - manually adding entries
 
+## if-cached
+
+memento.core/if-cache is like an if-let, but the "true" branch executes if the function call
+is cached, otherwise else branch is executed. The binding is expected to be a cached function call, otherwise 
+an error is thrown. 
+
+Example:
+
+```clojure
+(if-cached [v (my-function arg1)]
+  (println "cached value is " v)
+  (println "value is not cached"))
+```
+
 ## Skip/disable caching
 
 If you set `-Dmemento.enabled=false` JVM option (or change `memento.config/enabled?` var root binding), 

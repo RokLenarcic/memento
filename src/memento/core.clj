@@ -4,7 +4,8 @@
   (:require [memento.base :as base]
             [memento.guava]
             [memento.multi :as multi]
-            [memento.mount :as mount])
+            [memento.mount :as mount]
+            [memento.base :as b])
   (:import (memento.base EntryMeta)))
 
 (defn do-not-cache
@@ -225,3 +226,28 @@
   {::type ::daisy
    ::multi/cache cache
    ::multi/upstream upstream})
+
+(defmacro if-cached
+  "Like if-let, but then clause is executed if the call in the binding is cached, with the binding symbol
+  being bound to the cached value.
+
+  This assumes that the top form in bindings is a call of cached function, generating an error otherwise.
+
+  e.g. (if-cached [my-val (my-cached-fn arg1)] ...)"
+  ([bindings then]
+   `(if-cached ~bindings ~then nil))
+  ([bindings then else]
+   (assert (vector? bindings))
+   (assert (= 2 (count bindings)))
+   (let [form (bindings 0)
+         cache-call (bindings 1)
+         _ (assert (list? cache-call))
+         f (first cache-call)
+         _ (assert (symbol? f))]
+     `(if-let [mnt# (mount/mount-point ~(first cache-call))]
+        (let [cached# (mount/if-cached mnt# '~(next cache-call))]
+          (if (= cached# b/absent)
+            ~else
+            (let [~form cached#] ~then)))
+        (throw (ex-info (str "Function " ~(str f) " is not a cached function")
+                        {:form '~cache-call}))))))

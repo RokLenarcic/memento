@@ -124,6 +124,15 @@
   List of tags for this memoized bind."
   :memento.core/tags)
 
+(def id
+  "Function bind setting.
+
+  Id of the function bind. If you're memoizing a Var, this defaults to stringified var name,
+  otherwise the ID is the function itself.
+
+  This is useful to specify when you're using Cache implementation that stores data outside JVM,
+  as they often need a name for each function's cache.")
+
 (def timeunits
   "Timeunits keywords"
   {:ns TimeUnit/NANOSECONDS

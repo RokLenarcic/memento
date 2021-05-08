@@ -8,7 +8,8 @@
   [] 1)
 
 (defn y
-  {::m/cache {:size< 1}}
+  {::m/cache {::m/size< 1
+              ::m/type ::m/guava}}
   [] 1)
 
 (deftest test-ns-scan

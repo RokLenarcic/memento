@@ -1,5 +1,7 @@
 (ns memento.mount-test
   (:require [memento.mount :as m]
+            [memento.base :as b]
+            [memento.config :as mc]
             [clojure.test :refer :all]))
 
 (deftest cache-tags-test
@@ -29,5 +31,11 @@
 (deftest update-existing-test
   (is (= {:a 1 :b 2} (m/update-existing {:a 1 :b 1} [:b :c] inc))))
 
-(deftest update-tag-caches-test
-  (testing "Updates root binding"))
+(deftest id-test
+  (are [expected-id fn-or-var conf]
+    (= expected-id (-> (m/bind fn-or-var conf b/no-cache) m/mount-point :segment :id))
+    inc inc {}
+    inc inc :a
+    "#'clojure.core/inc" #'inc {}
+    :x #'inc {mc/id :x}
+    :x inc {mc/id :x}))
