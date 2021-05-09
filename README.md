@@ -618,8 +618,8 @@ cache, and you're feeding the local cache via some other means:
 
 ## if-cached
 
-memento.core/if-cache is like an if-let, but the "true" branch executes if the function call
-is cached, otherwise else branch is executed. The binding is expected to be a cached function call, otherwise 
+memento.core/if-cache is like an if-let, but the "then" branch executes if the function call
+is cached, otherwise else branch is executed. The binding is expected to be a cached function call form, otherwise 
 an error is thrown. 
 
 Example:
