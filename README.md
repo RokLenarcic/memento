@@ -8,7 +8,14 @@ A library for function memoization with scoped caches and tagged eviction capabi
 
 ## Motivation
 
-Why is there a need for another caching library? [Motivation here.](doc/motivation.md) 
+Why is there a need for another caching library?
+
+- request scoped caching (and other scoped caching)
+- eviction by secondary index
+- disabling cache for specific function returns
+- tiered caching
+- size based eviction that puts limits around more than one function at the time
+- cache events
 
 ## Usage
 
@@ -29,7 +36,7 @@ If a var is specified, the root binding of the var is modified to the cached fun
 (m/memo #'my-function {})
 ```
 
-**The cache conf is a plain map. Use variables and normal map configurations to construct these.**
+**The cache conf is a plain map. Use variables and normal map operations to construct these.**
 
 The `{}` conf results in the default cache being created, which is a cache that does no caching (this is useful for reasons listed later).
 
@@ -57,7 +64,7 @@ Guava type takes additional parameters to customize behaviour:
 It can be cumbersome to remember all these properties and to type them out.
 
 For this purpose, and for purpose of documentation, there are special configuration namespaces
-with vars are conf keys. The docstrings explain the settings.
+with vars that are conf keys. The docstrings explain the settings.
 
 Here's an example of a complicated cache conf:
 
@@ -128,163 +135,27 @@ Another example using tags, scoped caches and tagged eviction:
   (get-person-by-id 5))
 ```
 
-## Major concepts
+## Major concepts (cache, bind and mount point)
 
-Back to basics.
 Enabling memoization of a function is composed of two distinct steps:
 
 - creating a Cache (optional, as you can use an existing cache)
 - binding the cache to the function (a MountPoint is used to connect a function being memoized to the cache)
 
-A cache, an instance of memento.base/Cache, can contain entries from multiple functions and can be shared between memoized functions.
-Each memoized function is bound to a Cache via MountPoint.
-
-#### Creating a cache
-
-Creating a cache is done by using `memento.core/create`, which takes a map of configuration (called **cache conf**).
-You can use the resulting Cache with multiple functions. The configuration properties (map keys) can be found
-in `memento.config` and `memento.guava.config`, look for "Cache setting" in docstring.
-
-If `memento.config/enabled?` is false, this function always returns `memento.base/no-cache`, which is a Cache
-implementation that doesn't do any caching. You can set this at start-up by specifying java property:
-`-Dmemento.enabled=false`.
-
-#### Binding the cache
-
-Binding the cache to a function is done by `memento.core/bind`. Parameters are:
-
-- a fn or a var, if var, the root value of var is changed to a memoized version
-- a mount point configuration or **mount conf** for short
-- a Cache instance that you want to bind
-
-Mount conf is either a map of mount point configuration properties, or a shorthand (see below).
-The configuration properties (map keys) can be found in `memento.config`, look for "function bind" in docstring.
-
-Instead of map of properties, **mount conf** can be a shorthand, which has the following two shorthands:
-- `[:some-keyword :another-keyword]` -> `{:memento.core/tags [:some-keyword :another-keyword]}`
-- `:a-keyword` -> `{:memento.core/tags [:a-keyword]}`
-
-#### Create + bind combined
-
-You can combine both functions into 1 call using `memento.core/memo`.
-
-```clojure
-(m/memo fn-or-var mount-conf cache-conf)
-```
-
-To make things shorter, there's a 2-arg variant that allows that you specify both configurations at once:
-
-```clojure
-(m/memo fn-or-var conf)
-```
-
-If conf is a map, then all the properties valid for mount conf are treated as such. The rest is passed to cache create.
-If conf is a mount conf shorthand then cache conf is considered to be {}. E.g.
-
-```clojure
-(m/memo my-fn :my-tag)
-```
-
-This creates a memoized function tagged with `:my-tag` bound to a cache that does no caching.
+[Read about these core concepts here.](doc/major.md)
 
 ## Additional features
 
-#### Changing cache key
+#### [Changing the key for cached entry](doc/key-fn.md)
 
-Add `:memento.core/key-fn` to cache or mount config (or use `mc/key-fn` value) to specify a function with which to manipulate
-the key cache will use for the entry. 
+#### [Prevent caching of a specific return value (and general return value xform)](doc/ret-fn.md)
 
-Example building on previous suggested `cache/inf` cache configuration:
+#### [Manually add or evict entries](doc/manual-add-remove.md)
 
-```clojure
-(defn get-person-by-id [db-conn account-id person-id] {})
-
-; when creating the cache key, remove db connection
-(m/memo #'get-person-by-id (assoc cache/inf-cache mc/key-fn #(remove db-conn? %)))
-; or more explicit
-(m/memo #'get-person-by-id {mc/type mc/guava mc/key-fn #(remove db-conn? %)})
-```
-
-When creating the cache key, remove db connection, so the cache uses `[account-id person-id]` as key.
-Thus calling the function with different db connection but same ids returns the cached value.
-
-Another example:
-```clojure
-(defn return-my-user-info-json [http-request]
-  (load-user (-> http-request :session :user-id)))
-
-;; clearly the cache hit is based on a deeply nested property out of a huge request map
-;; so we want to use that as basis for caching
-(m/memo #'return-my-user-info-json (assoc cache/inf-cache mc/key-fn #(-> % first :session :user-id)))
-```
-
-**This is both a mount conf setting, and a cache setting.** The obvious difference is that specifying
-`key-fn` for the Cache will affect all functions using that cache and in mount conf, only that one function will
-be affected. If using 2-arg `memo`, then this setting is applied to mount conf.
-
-#### Prevent caching of a specific return value
-
-If you want to prevent caching of a specific function return, you can wrap it in special record
-using `memento.core/do-not-cache` function. Example:
-
-```clojure
-(defn get-person-by-id [db-conn account-id person-id]
-  (if-let [person (db-get-person db-conn account-id person-id)]
-    {:status 200 :body person} 
-    (m/do-not-cache {:status 404})))
-```
-
-404 responses won't get cached, and the function will be invoked every time for those ids.
-
-#### Modifying returned value
-
-Sticking a piece of caching logic into your function logic isn't very clean. Instead, you can 
-add `:memento.core/ret-fn` to cache or mount conf (or use `mc/ret-fn` value) to specify a function that can modify
-the return value from a cached function before it is cached. This is useful when using the `do-not-cache` function above to
-do the wrapping outside the function being cached. Example:
-
-```clojure
-; first argument is args, second is the returned value
-(defn no-cache-error-resp [[db-conn account-id person-id :as args] resp]
-  (if (<= 400 (:status resp) 599)
-    (m/do-not-cache resp)
-    resp))
-
-(defn get-person-by-id [db-conn account-id person-id]
-  (if (nil? person-id)
-    {:status 404}
-    {:status 200}))
-
-(m/memo #'get-person-by-id (assoc cache/inf-cache mc/ret-fn no-cache-error-resp))
-```
-
-**This is both a mount conf setting, and a cache setting. This has same consequences as with key-fn setting above.**
-
-#### Manual eviction
-
-You can manually evict entries:
-
-```clojure
-; invalidate everything, also works on MountPoint instances
-(m/memo-clear! memoized-function)
-; invaliate an arg-list, also works on MountPoint instances
-(m/memo-clear! memoized-function arg1 arg2 ...)
-```
-
-You can manually evict all entries in a Cache instance:
-
-```clojure
-(m/memo-clear-cache! cache-instance)
-```
-
-#### Manually adding entries
-
-You can add entries to a function's cache at any time:
-
-```clojure
-; also works on MountPoint instances
-(m/memo-add! memoized-function {[arg1 arg2] result})
-```
+#### `(m/as-map memoized-function)` to get a map of cache entries, also works on MountPoint instances
+#### `(m/memoized? a-function)` returns true if the function is memoized
+#### `(m/memo-unwrap memoized-function)` returns original uncached function, also works on MountPoint instances
+#### `(m/active-cache memoized-function)` returns Cache instance from the function, if present.
 
 #### Additional utility
 
@@ -292,329 +163,35 @@ You can add entries to a function's cache at any time:
 - `(m/memoized? a-function)` -> returns true if the function is memoized
 - `(m/memo-unwrap memoized-function)` -> returns original uncached function, also works on MountPoint instances
 
-## Tags
+## Tags 
 
-You can add tags to the caches. You can run actions on caches with specific tags.
+You can add tags to the caches. Tags enable that you:
 
-You can specify them via `:memento.core/tags` key (also `mc/tags` value),
-or you can simply specify them instead of conf map, which creates a tagged cache
-of noop type (that you can replace later).
+- run actions on caches with specific tags
+- **change or update cache of tagged MountPoints within a scope**
+- change or update cache of tagged MountPoints permanently
+- use secondary index to invalidate entries by a tag + ID pair
 
-```clojure
-(m/memo {mc/tags [:request-scope :person]} #'get-person-by-id)
-(m/memo [:request-scope :person] #'get-person-by-id)
-(m/memo :person #'get-person-by-id)
-```
-
-#### Utility
-
-You can fetch tags on a memoized function.
-
-```clojure
-(m/tags get-person-by-id)
-=> [:person]
-```
-
-You can fetch all mount points of functions that are tagged by a specific tag:
-
-```clojure
-(m/mounts-by-tag :person)
-=> #{#memento.mount.TaggedMountPoint{...}}
-```
-
-#### Change / update cache within a scope
-
-```clojure
-(m/with-caches :person (constantly (m/create cache/inf-cache))
-  (get-person-by-id db-spec 1 12)
-  (get-person-by-id db-spec 1 12)
-  (get-person-by-id db-spec 1 12))
-```
-
-Every memoized function (mountpoint) inside the block has its cache updated to the result of the
-provided function. In this example, all the `:person` tagged functions will use the same unbounded cache
-within the block. This effectively stops them from using any previously cached values and any values added to
-cache are dropped when block is exited. 
-
-**This is extremely useful to achieve request scoped caching.**
-
-#### Updating / changing cache instance permanently
-
-You can update Cache instances of all functions tagged by a specific tag. This will modify root binding
-if not inside `with-caches`, otherwise it will modify the binding.
-
-```clojure
-(m/update-tag-caches! :person (constantly (m/create cache/inf-cache)))
-```
-
-All `:person` tagged memoized functions will from this point on use a new empty unbounded cache.
-
-#### Applying operations to tagged memoized functions
-
-Use `mounts-by-tag` to grab mount points and then apply any of the core functions to them.
-
-```clojure
-(doseq [f (m/mounts-by-tag :person)]
-  (m/memo-clear! f))
-```
-
-#### Invalidate entries by a tag + ID combo
-
-You can add tag + ID pairs to cached values. This can be later used to invalidate these
-entried based on that ID.
-
-ID can be a number like `1` or something complex like a `[1 {:region :us}]`. You can attach multiple
-IDs for same tag.
-
-You can add the tag ID pair inside the cached function or in the ret-fn:
-
-```clojure
-(defn get-person-by-id [db-conn account-id person-id]
-  (if (nil? person-id)
-    {:status 404}
-    (-> {:status 200}
-        (m/with-tag-id :person person-id)
-        (m/with-tag-id :account account-id))))
-
-(m/memo #'get-person-by-id [:person :account] cache/inf-cache)
-```
-
-Now you can invalidate all entries linked to a specified ID in any correctly tagged cache:
-
-```clojure
-(m/memo-clear-tag! :account 1)
-```
-
-This will invalidate entries with tag id `:account, 1` in all `:account` tagged functions.
-
-As mentioned, you can move code that adds the id information to a `ret-fn`:
-
-```clojure
-; first argument is args, second is the returned value
-(defn ret-fn [[_ account-id person-id :as args] resp]
-  (if (<= 400 (:status resp) 599)
-    (m/do-not-cache resp)
-    (-> resp
-        ; we can grab the data from arg list
-        (m/with-tag-id :account account-id)
-        (m/with-tag-id :person person-id)
-        ; or we can grab it from the return value
-        (m/with-tag-id :person (:id resp)))))
-
-(defn get-person-by-id [db-conn account-id person-id]
-  (if (nil? person-id)
-    {:status 404}
-    {:status 200 :id person-id :name ....}))
-
-(m/memo #'get-person-by-id [:person :account] (assoc cache/inf-cache mc/ret-fn ret-fn))
-```
-
-Later you can invalidate tagged entries:
-
-```clojure
-(m/memo-clear-tag! :person 1)
-```
+This is a very powerful feature, [read more here.](doc/tags.md)
 
 ## Namespace scan
 
 You can scan loaded namespaces for annotated vars and automatically create caches.
-The scan looks for Vars with `:memento.core/cache` key in the meta.
-That value is used as a cache spec.
 
-Given require `[memento.ns-scan :as ns-scan]`:
-```clojure
-(ns myproject.some-ns
-  (:require 
-    [myproject.cache :as cache]
-    [memento.core :as m]))
-
-; defn already has a nice way for adding meta
-(defn test1
-  "A function using built-in defn meta mechanism to specify a cache region"
-  {::m/cache cache/inf}
-  [arg1 arg2]
-  (+ arg1 arg2))
-
-; you can also do standard meta syntax
-(defn ^{::m/cache cache/inf} test2
-  "A function using normal meta syntax to add a cache to itself"
-  [arg1 arg2] (+ arg1 arg2))
-
-; this also works on def
-(def ^{::m/cache cache/inf} test3 (fn [arg1 arg2] (+ arg1 arg2)))
-
-; attach caches
-(ns-scan/attach-caches)
-```
-
-This only works on LOADED namespaces, so beware.
-
-Calling `attach-caches` multiple times attaches new caches, replaces existing caches.
-
-Namespaces `clojure.*` and `nrepl.*` are not scanned by default, but you can
-provide your own blacklists, see doc.
+[Read more](doc/ns-scan.md)
 
 ## Events
 
-You can fire an event at a memoized function. The target can be a particular function (or MountPoint), or
-you can specify a tag (and all tagged functions get the event). Each function can configure its own handler for
-events. Event can be any object, I suggest you use a structure that will enable event handlers to distinguish
-events.
+You can fire an event at a memoized function. Main use case is to enable adding entries to different functions from same data.
 
-Event handler is a function of two arguments, the MountPoint it's been triggered (most core functions work on those)
-and the event.
-
-Main use case is to enable adding entries to different functions from same data. Example:
-
-```clojure
-(defn get-project-name
-  "Returns project name"
-  [project-id])
-
-(m/memo #'get-project-name inf)
-
-(defn get-project-owner
-  "Returns project's owner user ID"
-  [project-id])
-
-(m/memo #'get-project-owner inf)
-
-(defn get-user-projects
-  "Returns a big expensive list"
-  [user-id]
-  (let [project-list '...]
-    project-list))
-```
-
-In that example, when `get-user-projects` is called, we might load over a 100 projects, and we'd hate to waste that
-and not inform `get-project-name` and `get-project-owner` about the facts we've established here, especially since we
-might be calling these smaller functions in a loop right after fetching the big list.
-
-Here's a way to make sure data is reused by manually pushing entries into the caches as supported by most caching libs:
-
-```clojure
-(defn get-user-projects
-  "Returns a big expensive list"
-  [user-id]
-  (let [project-list '...]
-    ;; preload entries for seen projects into caches
-    (m/memo-add! get-project-name
-                 (zipmap (map (comp list :id) project-list)
-                         (map :name project-list)))
-    (m/memo-add! get-project-owner
-                 (zipmap (map (comp list :id) project-list)
-                         (repeat user-id)))
-    project-list))
-```
-
-The problem with this solution is that it is an absolute nightmare to maintain:
-- adding/removing data consuming functions like `get-project-name` means that I have to also fix producing
-  functions like `get-user-projects`
-- worse yet, the producer function has to be aware of what the argument list of consuming function looks like
-  and how the output of that function is related to that. For instance if I change arg list for `get-project-owner`
-  I must fix the `get-user-projects` code that pushes cache entries
-- if I want additional producers like `get-user-projects` then each such producer must implement all these changes
-  and each has a massive block to feed all the consumers
-
-
-I can use events instead and co-locate the code that feeds the cache with the function:
-
-```clojure
-(defn get-project-name
-  "Returns project name"
-  [project-id])
-
-(m/memo #'get-project-name
-        (assoc inf
-          mc/evt-fn (m/evt-cache-add
-                      :project-seen
-                      (fn [{:keys [name id]}] {[id] name}))
-          mc/tags [:project]))
-
-(defn get-project-owner
-  "Returns project's owner user ID"
-  [project-id])
-
-(m/memo #'get-project-owner
-        (assoc inf
-          mc/evt-fn (m/evt-cache-add
-                      :project-seen
-                      (fn [{:keys [id user-id]}] {[id] user-id}))
-          mc/tags [:project]))
-
-(defn get-user-projects
-  "Returns a big expensive list"
-  [user-id]
-  (let [project-list '...]
-    (doseq [p project-list]
-      (m/fire-event! :project [:project-seen (assoc p :user-id user-id)]))
-    project-list))
-```
-
-We're using the `evt-cache-add` convenience function that assumes event shape is a 
-vector of type + payload and that the intent is to add entries to the cache.
-
-In this case the producer function is only concerned with firing events at tagged caches.
-It doesn't need to consider the number of shape of consumers.
-
-The caching declaration of consumer functions is where there the cache feeding logic is located,
-which makes things manageable.
+[Read more](doc/events.md)
 
 ## Tiered caching
 
 You can use caches that combine two other caches in some way. The easiest way to generate
 the cache configuration needed is to use `memento.core/tiered`,`memento.core/consulting`, `memento.core/daisy`.
 
-Each of these takes two parameters:
-- the "local" cache
-- the "upstream" cache
-
-These parameters can be existing `Cache` instances or cache configuration maps (in which case a new Cache will
-be created.)
-
-Invalidation operations on these combined caches also affect upstream. Other operations only affect local cache.
-
-### memento.core/tiered
-
-This cache works like CPU cache would. 
-
-Entry is fetched from cache, delegating to upstream is not found. After the operation
-the entry is in both caches.
-
-Useful when upstream is a big cache that outside the JVM, but it's not that inexpensive, so you
-want a local smaller cache in front of it.
-
-### memento.core/consulting
-
-Entry is fetched from cache, if not found, the upstream is asked for entry if present (but not to make one
-in the upstream).
-
-After the operation, the entry is in local cache, upstream is unchanged.
-
-Useful when you want to consult a long term upstream cache for existing entries, but you don't want any
-entries being created for the short term cache to be pushed upstream.
-
-This is what you usually want when you put a request scoped cache in front of an existing longer cache.
-
-```clojure
-(m/with-caches :request (memoize #(m/create (m/consulting inf-cache %)))
-  ....)
-```
-
-In this kind of setup, the request scoped cache will use any entries on any caches that were 
-on functions outside this block, but it will not introduce more entries to them.
-
-### memento.core/daisy
-
-Entry is returned from cache IF PRESENT, otherwise upstream is hit. The returned value
-is NOT added to cache.
-
-After the operation the entry is either in local or upstream cache.
-
-Useful when you don't want entries from upstream accumulating in local
-cache, and you're feeding the local cache via some other means:
-- a preloaded fixed cache
-- manually adding entries
+[Read more](doc/tiered.md)
 
 ## if-cached
 
@@ -633,7 +210,7 @@ Example:
 ## Skip/disable caching
 
 If you set `-Dmemento.enabled=false` JVM option (or change `memento.config/enabled?` var root binding), 
-then all caches created will `memento.base/no-cache`, which does no caching. 
+then type of all caches created will be `memento.base/no-cache`, which does no caching. 
 
 ## Reload guards
 
@@ -642,7 +219,7 @@ mappings when memoized function is GCed. It's important when reloading namespace
 on the old function versions.
 
 It uses finalize, which isn't free (takes extra work to allocate and GC has to work harder), so
-if you don't use namespace reloading and you want to optimize you can disable reload guard objects.
+if you don't use namespace reloading, and you want to optimize you can disable reload guard objects.
 
 Set `-Dmemento.reloadable=false` JVM option (or change `memento.config/reload-guards?` var root binding).
 
