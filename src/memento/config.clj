@@ -42,6 +42,8 @@
 
   Cache key affects what is considered the 'same' argument list for a function and it will affect caching in that manner.
 
+  If both function bind and cache have this setting, then function bind key-fn is applied first.
+
   It's a function of 1 argument, the seq of function arguments. If not provided it defaults to identity."
   :memento.core/key-fn)
 
@@ -131,7 +133,8 @@
   otherwise the ID is the function itself.
 
   This is useful to specify when you're using Cache implementation that stores data outside JVM,
-  as they often need a name for each function's cache.")
+  as they often need a name for each function's cache."
+  :memento.core/id)
 
 (def timeunits
   "Timeunits keywords"
