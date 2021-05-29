@@ -4,27 +4,20 @@
   <groupId>org.clojars.roklenarcic</groupId>
   <artifactId>memento</artifactId>
   <packaging>jar</packaging>
-  <version>0.9.4</version>
+  <version>0.9.5</version>
   <name>memento</name>
   <description>A library for function memoization.</description>
   <url>https://github.com/RokLenarcic/memento</url>
   <licenses>
     <license>
-
       <name>Eclipse Public License 2.0</name>
-
       <url>https://github.com/RokLenarcic/memento/blob/master/LICENSE</url>
-
     </license>
   </licenses>
   <scm>
-
     <url>https://github.com/RokLenarcic/memento</url>
-
     <connection>scm:git:git://github.com/RokLenarcic/memento.git</connection>
-
     <developerConnection>scm:git:ssh://git@github.com/RokLenarcic/memento.git</developerConnection>
-
   </scm>
   <dependencies>
     <dependency>
@@ -35,11 +28,10 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>28.0-jre</version>
+      <version>30.1.1-jre</version>
     </dependency>
   </dependencies>
   <build>
     <sourceDirectory>src</sourceDirectory>
   </build>
-  <repositories/>
 </project>
