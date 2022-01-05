@@ -2,6 +2,5 @@
 *.jar
 /.nrepl-port
 /.repl
-pom.xml
 *.iml
 *.asc

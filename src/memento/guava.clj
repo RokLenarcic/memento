@@ -12,7 +12,7 @@
            (memento.base EntryMeta)
            (java.util.function BiFunction)))
 
-(defrecord CacheKey [f args])
+(defrecord CacheKey [id args])
 
 (def nil-entry (base/->EntryMeta nil false #{}))
 
@@ -79,7 +79,7 @@
                      (onRemoval [this n]
                        (sec-index-disj-entry sec-index (.getKey n) (.getValue n))
                        (removal-listener
-                         (.f ^CacheKey (.getKey n))
+                         (.id ^CacheKey (.getKey n))
                          (.args ^CacheKey (.getKey n))
                          (base/unwrap-meta (.getValue n))
                          (.getCause n))))
@@ -93,7 +93,7 @@
       size< (.maximumSize size<)
       kv-weight (.weigher
                   (reify Weigher (weigh [_this k v]
-                                   (kv-weight (.f ^CacheKey k)
+                                   (kv-weight (.id ^CacheKey k)
                                               (.args ^CacheKey k)
                                               (base/unwrap-meta v)))))
       weak-keys (.weakKeys)
@@ -127,11 +127,11 @@
                 (::non-cached data)
                 (throw cause))))))))
   (if-cached [this segment args]
-    (if-some [v (.getIfPresent guava-cache (->key-fn segment args))] v base/absent))
+    (if-some [v (.getIfPresent guava-cache (->key-fn segment args))] (base/unwrap-meta v) base/absent))
   (invalidate [this segment]
     (loop [^Iterator it (.. (.asMap guava-cache) keySet iterator)]
       (if (.hasNext it)
-        (do (when (= (:f segment) (.f ^CacheKey (.next it)))
+        (do (when (= (:id segment) (.id ^CacheKey (.next it)))
               (.remove it))
             (recur it))
         this)))
@@ -156,7 +156,7 @@
   (as-map [this segment]
     (persistent!
       (reduce (fn [m [^CacheKey k v]]
-                (if (= (:f segment) (.f k))
+                (if (= (:id segment) (.id k))
                   (assoc! m (.args k) (base/unwrap-meta v))
                   m))
               (transient {})
