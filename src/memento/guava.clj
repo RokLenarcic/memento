@@ -184,3 +184,17 @@
       (.stats ^Cache (:guava-cache fn-or-cache)))
     (when-let [c (mount/mount-point fn-or-cache)]
       (stats (mount/mounted-cache c)))))
+
+(defn to-data [cache]
+  (persistent!
+    (reduce (fn [m [k v]]
+              (assoc! m [(.id k) (.args k)] (when-not (= v nil-entry) v)))
+            (transient {})
+            (.asMap (:guava-cache cache)))))
+
+(defn load-data [cache data-map]
+  (reduce-kv
+    (fn [^Cache c k v]
+      (.put c (->CacheKey (first k) (second k)) (if (nil? v) nil-entry v)))
+    (:guava-cache cache)
+    data-map))

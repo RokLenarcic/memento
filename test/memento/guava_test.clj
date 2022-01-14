@@ -1,5 +1,6 @@
 (ns memento.guava-test
   (:require [clojure.test :refer :all]
+            [memento.base :as b]
             [memento.core :as m]
             [memento.config :as mc]
             [memento.guava :as mg :refer :all]
@@ -45,3 +46,15 @@
                                  nil)
           cache (.build builder)]
       (is (= 2 (.get cache (->CacheKey identity [1]) (fn [] 2)))))))
+
+(deftest data-loading-unloading
+  (testing "Serializes"
+    (let [c (m/memo identity {mc/type mc/guava mc/id "A"})]
+      (c 1)
+      (is (= (to-data (m/active-cache c)) {["A" '(1)] 1}))))
+  (testing "Deserializes"
+    (let [c (m/memo identity {mc/type mc/guava mc/id "A"})]
+      (load-data (m/active-cache c) {["X" '(4)] 5})
+      (is (= (b/as-map (m/active-cache c))
+             {#memento.guava.CacheKey{:args (4)
+                                      :id "X"} 5})))))
