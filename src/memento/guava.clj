@@ -195,6 +195,7 @@
 (defn load-data [cache data-map]
   (reduce-kv
     (fn [^Cache c k v]
-      (.put c (->CacheKey (first k) (second k)) (if (nil? v) nil-entry v)))
+      (.put c (->CacheKey (first k) (second k)) (if (nil? v) nil-entry v))
+      c)
     (:guava-cache cache)
     data-map))
