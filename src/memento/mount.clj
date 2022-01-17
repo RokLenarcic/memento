@@ -124,7 +124,7 @@
 (defn update-existing
   "Convenience function. Updates ks's that are present with the provided update fn."
   [m ks update-fn]
-  (reduce #(if-let [kv (find %1 %2)] (assoc %1 %2 (update-fn (val kv) (key kv))) %1) m ks))
+  (reduce #(if-let [kv (find %1 %2)] (assoc %1 %2 (update-fn (val kv))) %1) m ks))
 
 (defn alter-caches-mapping
   "Internal function. Modifies entire tagged cache map with the provided function.
