@@ -47,7 +47,7 @@
 (def no-cache
   (reify Cache
     (conf [this] {config/type config/none})
-    (cached [this segment args] (apply (:f segment) args))
+    (cached [this segment args] (unwrap-meta (apply (:f segment) args)))
     (if-cached [this segment args] absent)
     (invalidate [this segment] this)
     (invalidate [this segment args] this)
