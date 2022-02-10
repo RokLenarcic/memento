@@ -211,8 +211,8 @@
                 (swap! access-nums conj number)
                 (if (zero? (mod number 3)) (do-not-cache number) number))
               (ret-fn #(if (and (number? %2) (zero? (mod %2 5))) (do-not-cache %2) %2)))]
-      (is (= (range 20)) (map f (range 20)))
-      (is (= (range 20)) (map f (range 20)))
+      (is (= (range 20) (map f (range 20))))
+      (is (= (range 20) (map f (range 20))))
       (is (= (concat (range 20) [0 3 5 6 9 10 12 15 18]) @access-nums)))))
 
 (deftest get-tags-test
