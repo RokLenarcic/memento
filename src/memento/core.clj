@@ -55,7 +55,17 @@
   "Combines cache create and bind operations from this namespace.
 
   If conf is provided, it is used as mount-conf in bind operation, but with any extra map keys
-  going into cache create configuration."
+  going into cache create configuration.
+
+  If no configuration is provided, meta of the fn or var is examined.
+
+  The value of :memento.core/cache meta key is used as conf parameter
+  in memento.core/memo. If :memento.core/mount key is also present, then
+  they are used as cache and conf parameters respectively."
+  ([fn-or-var]
+   (let [{::keys [mount cache]} (meta fn-or-var)]
+     (if mount (memo fn-or-var mount cache)
+               (memo fn-or-var cache))))
   ([fn-or-var conf]
    (if (map? conf)
      (memo fn-or-var

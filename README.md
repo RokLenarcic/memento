@@ -38,6 +38,13 @@ If a var is specified, the root binding of the var is modified to the cached fun
 
 **The cache conf is a plain map. Use variables and normal map operations to construct these.**
 
+Another option is to specify `memo` options as meta on the function or var and use 1-arg `memo`:
+
+```clojure
+(defn my-function {::m/cache {}} [x] (* 2 x))
+(m/memo #'my-function)
+```
+
 The `{}` conf results in the default cache being created, which is a cache that does no caching (this is useful for reasons listed later).
 
 But if we want a cache that does actual caching, we can create an infinite duration cache implemented by Guava:
@@ -57,8 +64,8 @@ Guava is the main implementation provided by this library.
 Guava type takes additional parameters to customize behaviour:
 
 ```clojure
-(m/memo  #'my-function #::m {:type ::m/guava 
-                             :ttl [40 :min]})
+(m/memo #'my-function #::m {:type ::m/guava
+                            :ttl [40 :min]})
 ```
 
 It can be cumbersome to remember all these properties and to type them out.

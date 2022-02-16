@@ -3,8 +3,7 @@
  :deps {com.google.guava/guava {:mvn/version "30.1.1-jre"}}
 
  :aliases {:dev {:extra-paths ["test"]
-                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}
-                              io.github.seancorfield/build-clj {:git/tag "v0.6.4" :git/sha "c21cfde"}}
+                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}}
                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"
                             "-Djdk.attach.allowAttachSelf"]}
            :build {:deps {io.github.seancorfield/build-clj {:git/tag "v0.6.4" :git/sha "c21cfde"}}

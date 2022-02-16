@@ -27,4 +27,5 @@
 (defn deploy "Deploy the JAR to Clojars." [opts]
   (-> opts
       add-defaults
+      (assoc :sign-releases? true)
       (bb/deploy)))

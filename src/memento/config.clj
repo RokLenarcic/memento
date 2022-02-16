@@ -145,3 +145,13 @@
    :m TimeUnit/MINUTES
    :h TimeUnit/HOURS
    :d TimeUnit/DAYS})
+
+(def cache
+  "The key extracted from object/var meta and used as cache configuration when
+  1-arg memo is called or ns-scan based mounting is performed."
+  :memento.core/cache)
+
+(def mount
+  "The key extracted from object/var meta and used as mount configuration when
+  1-arg memo is called or ns-scan based mounting is performed."
+  :memento.core/mount)

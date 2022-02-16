@@ -16,7 +16,7 @@
   "If var has :memento.core/cache meta key present, use that as memoization
   configuration. Returns the var or nil if not memoized."
   [v]
-  (when-let [conf (::core/cache (meta v))] (core/memo v conf) v))
+  (when (::core/cache (meta v)) (core/memo v) v))
 
 (defn vars
   [black-list]
@@ -30,7 +30,8 @@
   :memento.core/cache key in meta of the var. Returns coll of affected vars.
 
   The value of :memento.core/cache meta key is used as conf parameter
-  in memento.core/memo.
+  in memento.core/memo. If :memento.core/mount key is also present, then
+  they are used as cache and conf parameters respectively.
 
   Note that ONLY the loaded namespaces are considered.
 
