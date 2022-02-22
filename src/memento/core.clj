@@ -43,6 +43,7 @@
 
    Supported options are:
    - memento.core/key-fn
+   - memento.core/key-fn*
    - memento.core/ret-fn
    - memento.core/tags
    - memento.core/seed"

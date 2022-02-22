@@ -199,6 +199,14 @@
       (is (= [3 2 1] (cached 1 3 3 2 2 2)))
       (is (= [2 1] (cached 2 1))))))
 
+(deftest key-fn*-test
+  (testing "that key-fn works for direct cache"
+    (let [cached (memo (fn [& ids] ids) (assoc inf mc/key-fn* hash-set))]
+      (is (= [3 2 1] (cached 3 2 1)))
+      (is (= [3 2 1] (cached 1 2 3)))
+      (is (= [3 2 1] (cached 1 3 3 2 2 2)))
+      (is (= [2 1] (cached 2 1))))))
+
 (deftest ret-fn-non-cached
   (testing "that ret-fn is ran"
     (is (= -4 ((memo + (ret-fn #(* -1 %2))) 2 2)))

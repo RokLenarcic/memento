@@ -9,7 +9,7 @@
 (def tags "Map tag to mount-point" (atom {}))
 
 (def configuration-props [config/key-fn config/ret-fn config/seed config/tags
-                          config/evt-fn config/id])
+                          config/evt-fn config/id config/key-fn*])
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"
@@ -81,7 +81,10 @@
 (defn create-mount
   "Create mount record by specified map conf"
   [f cache mount-conf]
-  (let [key-fn (config/key-fn mount-conf identity)
+  (let [key-fn (or (config/key-fn mount-conf)
+                   (when-let [base (config/key-fn* mount-conf)]
+                     (fn [args] (apply base args)))
+                   identity)
         evt-fn (config/evt-fn mount-conf (fn [_ _] nil))
         f* (if-let [ret-fn (config/ret-fn mount-conf)]
              (fn [& args] (ret-fn args (apply f args)))

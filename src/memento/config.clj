@@ -47,6 +47,11 @@
   It's a function of 1 argument, the seq of function arguments. If not provided it defaults to identity."
   :memento.core/key-fn)
 
+(def key-fn*
+  "Function bind setting, works same as key-fn but the provided function will receive all
+  arguments that the original function does. If both key-fn and key-fn* are provided, key-fn is used."
+  :memento.core/key-fn*)
+
 (def ret-fn
   "Cache and function bind setting, a function that is ran to process the return of the function, before it's memoized,
    (fn [fn-args ret-value] transformed-value).
