@@ -6,7 +6,7 @@
             [memento.caffeine :refer :all]
             [memento.caffeine.config :as mcc]))
 
-(deftest cache-creation
+#_(deftest cache-creation
   (testing "Creates a cache builder"
     (are [expected props]
       (= expected (str (conf->builder props nil)))

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.x
+## 1.0.37
 - remove Guava and replace with Caffeine
 - rewrite the readme
 - mark Guava namespaces for deprecation
