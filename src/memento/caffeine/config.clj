@@ -1,11 +1,11 @@
-(ns memento.guava.config
-  "Guava implementation config helpers.
+(ns memento.caffeine.config
+  "Caffeine implementation config helpers.
 
-  Contains documented definitions of standard options of Guava cache config."
+  Contains documented definitions of standard options of Caffeine cache config."
   {:author "Rok Lenarčič"})
 
-(def ^:deprecated removal-listener
-  "Cache setting, corresponds to .removalListener on CacheBuilder.
+(def removal-listener
+  "Cache setting, corresponds to .removalListener on Caffeine.
 
   A function of four arguments (fn [f key value removal-cause] nil),
   that will be called whenever an entry is removed.
@@ -15,21 +15,21 @@
   - the function being cached
   - the key (arg-list transformed by key-fn if any)
   - the value (after ret-fn being applied)
-  - com.google.common.cache.RemovalCause
+  - com.github.benmanes.caffeine.cache.RemovalCause
 
   Warning: any exception thrown by listener will not be propagated to the Cache user, only logged via a Logger."
-  (identity :memento.caffeine/removal-listener))
+  :memento.caffeine/removal-listener)
 
-(def ^:deprecated weight<
+(def weight<
   "Cache setting, a long.
 
   Specifies the maximum weight of entries the cache may contain. If using this option,
   you must provide `kw-weight` option for cache to calculate the weight of entries.
 
   A cache may evict entries before the specified limit is reached."
-  (identity :memento.caffeine/weight<))
+  :memento.caffeine/weight<)
 
-(def ^:deprecated kv-weight
+(def kv-weight
   "Cache setting, a function of 3 arguments (fn [f key value] int-weight),
   that will be used to determine the weight of entries.
 
@@ -39,9 +39,9 @@
   - the first argument is the function being cached
   - the second argument is the key (arg-list transformed by key-fn if any)
   - the third argument is the value (after ret-fn being applied)"
-  (identity :memento.caffeine/kv-weight))
+  :memento.caffeine/kv-weight)
 
-(def ^:deprecated weak-keys
+(def weak-keys
   "Cache setting, corresponds to .weakKeys on CacheBuilder.
 
   Boolean flag, enabling storing keys using weak references.
@@ -54,17 +54,17 @@
   the Map specification (in the same way that IdentityHashMap does).
 
   The identity comparison makes this not very useful."
-  (identity :memento.caffeine/weak-keys))
+  :memento.caffeine/weak-keys)
 
-(def ^:deprecated weak-values
+(def weak-values
   "Cache setting, corresponds to .weakValues on CacheBuilder.
 
   Boolean flag, enabling storing values using weak references.
 
   This allows entries to be garbage-collected if there are no other (strong or soft) references to the values."
-  (identity :memento.caffeine/weak-values))
+  :memento.caffeine/weak-values)
 
-(def ^:deprecated soft-values
+(def soft-values
   "Cache setting, corresponds to .softValues on CacheBuilder.
 
   Boolean flag, enabling storing values using soft references.
@@ -72,9 +72,9 @@
   Softly referenced objects are garbage-collected in a globally least-recently-used manner,
   in response to memory demand. Because of the performance implications of using soft references,
   we generally recommend using the more predictable maximum cache size instead."
-  (identity :memento.caffeine/soft-values))
+  :memento.caffeine/soft-values)
 
-(def ^:deprecated stats
+(def stats
   "Cache setting, boolean flag, enabling collection of stats.
 
   Corresponds to .enableStats on CacheBuilder.
@@ -82,9 +82,9 @@
   You can retrieve a cache's stats by using memento.caffeine/stats.
 
   Returns com.google.common.cache.CacheStats instance or nil."
-  (identity :memento.caffeine/stats))
+  :memento.caffeine/stats)
 
-(def ^:deprecated ticker
+(def ticker
   "Cache setting, corresponds to .ticker on CacheBuilder.
 
   A function of zero arguments that should return current nano time.
@@ -94,4 +94,4 @@
 
   This is useful for testing and you can also make the time move in discrete amounts (e.g. you can
   make all cache accesses in a request have same time w.r.t. eviction)."
-  (identity :memento.caffeine/ticker))
+  :memento.caffeine/ticker)

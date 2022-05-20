@@ -1,4 +1,5 @@
 (ns memento.multi
+  {:author "Rok Lenarčič"}
   (:require [memento.base :as b]))
 
 (defrecord MultiCache [cache upstream conf cached-fn]

@@ -1,5 +1,6 @@
 # Performance
 
+## outdated
 Performance is not a dedicated goal of this library, but here's some numbers:
 
 ```clojure
@@ -8,7 +9,7 @@ Performance is not a dedicated goal of this library, but here's some numbers:
 ; clojure.core.memoize
 (def f-core-memo (ccm/memo identity))
 ; memento
-(def f-memento (m/memo identity {::m/type ::m/guava}))
+(def f-memento (m/memo identity {::m/type ::m/caffeine}))
 ```
 ## Memoize
 
@@ -114,7 +115,7 @@ Found 2 outliers in 60 samples (3,3333 %)
 #### 1M misses (1012 ns per miss)
 
 ```text
-(cc/bench (let [f-memento (m/memo identity {::m/type ::m/guava})]
+(cc/bench (let [f-memento (m/memo identity {::m/type ::m/caffeine})]
             (reduce #(f-memento %2) (range 1000000))))
 Evaluation count : 60 in 60 samples of 1 calls.
              Execution time mean : 1,012604 sec
@@ -128,7 +129,7 @@ Evaluation count : 60 in 60 samples of 1 calls.
 #### 1M misses for size 100 LRU cache (321 ns per miss)
 
 ```text
-(cc/bench (let [f-memento (m/memo {::m/size< 100 ::m/type ::m/guava} identity)]
+(cc/bench (let [f-memento (m/memo {::m/size< 100 ::m/type ::m/caffeine} identity)]
             (reduce #(f-memento %2) (range 1000000))))
 Evaluation count : 240 in 60 samples of 4 calls.
              Execution time mean : 321,756947 ms

@@ -6,7 +6,7 @@
             [memento.base :as base])
   (:import (memento.base Cache)))
 
-(def inf {mc/type mc/guava})
+(def inf {mc/type mc/caffeine})
 (defn size< [max-size]
   (assoc inf mc/size< max-size))
 (defn ret-fn [f]
@@ -291,8 +291,8 @@
           inner-f (fn [x] (swap! access-nums inc) x)
           evt-f (fn [this evt]
                   (m/memo-add! this {[evt] (inc evt)}))
-          x (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f mc/tags [:a]})
-          y (m/memo inner-f {mc/type mc/guava mc/evt-fn evt-f})]
+          x (m/memo inner-f {mc/type mc/caffeine mc/evt-fn evt-f mc/tags [:a]})
+          y (m/memo inner-f {mc/type mc/caffeine mc/evt-fn evt-f})]
       (is (= 1 (x 1)))
       (is (= 1 (x 1)))
       (is (= 1 @access-nums))
@@ -310,15 +310,24 @@
 
 (deftest if-cached-test
   (testing "if-cached executes then when cached"
-    (let [x (m/memo identity {mc/type mc/guava})]
+    (let [x (m/memo identity {mc/type mc/caffeine})]
       (x 2)
       (is (= 2
              (m/if-cached [y (x 2)]
                y
                (throw (ex-info "Shouldn't throw" {})))))))
   (testing "if-cached executes else when not cached"
-    (let [x (m/memo identity {mc/type mc/guava})]
+    (let [x (m/memo identity {mc/type mc/caffeine})]
       (is (= ::none
              (m/if-cached [y (x 2)]
                (throw (ex-info "Shouldn't throw" {}))
                ::none))))))
+
+(deftest put-during-load-test
+  (testing "adding entries during load"
+    (let [c (m/create inf)
+          fn1 (m/memo identity {} c)
+          fn2 (m/memo (fn [x] (m/memo-add! fn1 {[x] (inc x)})
+                        (dec x)))]
+      (is (= 4 (fn2 5)))
+      (is (= 6 (fn1 5))))))

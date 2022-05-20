@@ -8,14 +8,12 @@
   [] 1)
 
 (defn y
-  {::m/cache {::m/size< 1
-              ::m/type ::m/guava}}
+  {::m/cache {::m/size< 1 ::m/type ::m/caffeine}}
   [] 1)
 
 (deftest test-ns-scan
   (testing "should attach a cache"
-    (is (= [#'x #'y]
-           (ns-scan/attach-caches)))
+    (is (= [#'x #'y] (ns-scan/attach-caches)))
     (is (= true (m/memoized? x)))
     (is (= true (m/memoized? y))))
   (testing "should attach a new cache"

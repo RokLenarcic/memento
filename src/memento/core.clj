@@ -2,10 +2,9 @@
   "Memoization library."
   {:author "Rok Lenarčič"}
   (:require [memento.base :as base]
-            [memento.guava]
+            [memento.caffeine]
             [memento.multi :as multi]
-            [memento.mount :as mount]
-            [memento.base :as b])
+            [memento.mount :as mount])
   (:import (memento.base EntryMeta)))
 
 (defn do-not-cache
@@ -77,6 +76,14 @@
    (->> cache-conf
         create
         (bind fn-or-var mount-conf))))
+
+(defmacro defmemo
+  "Like defn, but immediately wraps var in a memo call. It expects caching configuration
+  to be in meta under memento.core/cache key, as expected by memo."
+  {:arglists '([name doc-string? attr-map? [params*] prepost-map? body]
+               [name doc-string? attr-map? ([params*] prepost-map? body)+ attr-map?])}
+  [& body]
+  `(memo (defn ~@body)))
 
 (defn active-cache
   "Return Cache instance from the function, if present."
@@ -257,7 +264,7 @@
          _ (assert (symbol? f))]
      `(if-let [mnt# (mount/mount-point ~(first cache-call))]
         (let [cached# (mount/if-cached mnt# '~(next cache-call))]
-          (if (= cached# b/absent)
+          (if (= cached# base/absent)
             ~else
             (let [~form cached#] ~then)))
         (throw (ex-info (str "Function " ~(str f) " is not a cached function")

@@ -1,22 +1,27 @@
-# Major concepts (cache, bind and mount point)
+# Caches and memoize calls
 
-Enabling memoization of a function is composed of two distinct steps:
+### Intro
 
-- creating a Cache (optional, as you can use an existing cache)
-- binding the cache to the function (a MountPoint is used to connect a function being memoized to the cache)
+We've seen `defmemo` macro that defines a function, creates a cache based on conf, then attaches that cache.
+It is a combination of a `defn` to define a function and a `memento.core/memo` call to create a cache and bind it.
 
-A cache, an instance of memento.base/Cache, can contain entries from multiple functions and can be shared between memoized functions.
-Each memoized function is bound to a Cache via MountPoint.
+And `memo` itself is a combination of:
+
+- creating a Cache via `memento.core/create` (optional, as you can use an existing cache)
+- binding the cache to the function via `memento.core/bind` (a MountPoint is used to connect a function being memoized to the cache)
+
+When `memo` or equivalent is called with a conf map, a new cache will be created and bound, if a `memento.base/Cache` instance
+is given that will be used instead of creating a new cache from a conf map. After `memo` or `bind` the function has a MountPoint attached. 
 
 #### Creating a cache
 
 Creating a cache is done by using `memento.core/create`, which takes a map of configuration (called **cache conf**).
 You can use the resulting Cache with multiple functions. The configuration properties (map keys) can be found
-in `memento.config` and `memento.guava.config`, look for "Cache setting" in docstring.
+in `memento.config` and `memento.caffeine.config`, look for "Cache setting" in docstring.
 
 If `memento.config/enabled?` is false, this function always returns `memento.base/no-cache`, which is a Cache
 implementation that doesn't do any caching. You can set this at start-up by specifying java property:
-`-Dmemento.enabled=false`.
+`-Dmemento.enabled=false` which globally disables caching.
 
 #### Binding the cache
 

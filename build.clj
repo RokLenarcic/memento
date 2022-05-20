@@ -4,7 +4,7 @@
             [org.corfield.build :as bb]))
 
 (def lib 'org.clojars.roklenarcic/memento)
-(def version (format "0.9.%s" (b/git-count-revs nil)))
+(def version (format "1.0.%s" (b/git-count-revs nil)))
 
 (defn add-defaults [opts]
   (assoc opts :lib lib :version version))

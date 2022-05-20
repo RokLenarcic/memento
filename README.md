@@ -6,6 +6,12 @@ A library for function memoization with scoped caches and tagged eviction capabi
 
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.roklenarcic/memento.svg)](https://clojars.org/org.clojars.roklenarcic/memento)
 
+## Version 1.0 breaking changes
+
+Version 1.0 represents a switch from Guava to Caffeine, which is a faster caching library, with added
+benefit of not pulling in the whole Guava artefact which is more that just that Cache. The Guava Cache type
+key and the config namespace are deprecated and will be removed in the future.
+
 ## Motivation
 
 Why is there a need for another caching library?
@@ -17,107 +23,192 @@ Why is there a need for another caching library?
 - size based eviction that puts limits around more than one function at the time
 - cache events
 
-## Usage
+## Adding cache to a function
 
-**With require as `[memento.core :as m]`:**
+**With require `[memento.core :as m][memento.config :as mc]`:**
 
-You can attach a cache to the function, by wrapping it in a `memo` call:
-
-```clojure
-(def my-function (m/memo #(* 2 %) {}))
-```
-
-The first argument is the function (or a var), and the second one is the cache conf.
-
-If a var is specified, the root binding of the var is modified to the cached function.
+Define a function + create new cache + attach cache to a function:
 
 ```clojure
-(defn my-function [x] (* 2 x))
-(m/memo #'my-function {})
+(m/defmemo my-function
+  {::m/cache {mc/type mc/caffeine}}
+  [x]
+  (* 2 x))
 ```
 
-**The cache conf is a plain map. Use variables and normal map operations to construct these.**
+### **The key parts here**:
+- `defmemo` works just like `defn` but wraps the function in a cache 
+- specify the cache configuration via `:memento.core/cache` keyword in function meta
 
-Another option is to specify `memo` options as meta on the function or var and use 1-arg `memo`:
+Quick reminder, there are two ways to provide metadata when defining functions: `defn` allows a meta
+map to be provided before the argument list, or you can add meta to the symbol directly as supported by the reader:
 
 ```clojure
-(defn my-function {::m/cache {}} [x] (* 2 x))
-(m/memo #'my-function)
+(m/defmemo ^{::m/cache {mc/type mc/caffeine}} my-function
+  [x]
+  (* 2 x))
 ```
 
-The `{}` conf results in the default cache being created, which is a cache that does no caching (this is useful for reasons listed later).
+### Caching an anonymous function
 
-But if we want a cache that does actual caching, we can create an infinite duration cache implemented by Guava:
+You can add cache to a function object (in `clojure.core/memoize` fashion):
 
 ```clojure
-(m/memo #'my-function {:memento.core/type :memento.core/guava})
-; or using the namespace shorthands
-(m/memo #'my-function #::m {:type ::m/guava})
+(m/memo (fn [] ...) {mc/cache mc/caffeine})
 ```
 
-Such cache works just like `clojure.core/memoize`, a memoization cache with unlimited duration and size.
+### Other ways to attach Cache to a function
 
-We have specified cache implementation type to be guava (instead of `:memento.core/none` which is a noop cache type).
+[Caches and memoize calls](doc/major.md)
 
-Guava is the main implementation provided by this library. 
+## Cache conf(iguration)
 
-Guava type takes additional parameters to customize behaviour:
+See above: `{mc/type mc/caffeine}`
+
+The cache conf is an open map of namespaced keywords such as `:memento.core/type`, various cache implementations can
+use implementation specific config keywords.
+
+Learning all the keywords and what they do can be hard. To assist you 
+there are special conf namespaces provided where conf keywords are defined as vars with docs,
+so it's easy so you to see which configuration keys are available and what their function is. It also helps
+prevent bugs from typing errors.
+
+The core properties are defined in `[memento.config :as mc]` namespace. Caffeine specific properties are defined
+in `[memento.caffeine.config :as mcc]`. 
+
+Here's a couple of equal ways of writing out you cache configuration meta:
 
 ```clojure
-(m/memo #'my-function #::m {:type ::m/guava
-                            :ttl [40 :min]})
+; the longest
+{:memento.core/cache {:memento.core/type :memento.core/caffeine}}
+; using alias
+{::m/cache {::m/type ::m/caffeine}}
+; using memento.config vars - recommended
+{mc/cache {mc/type mc/caffeine}}
 ```
 
-It can be cumbersome to remember all these properties and to type them out.
+### Core conf
 
-For this purpose, and for purpose of documentation, there are special configuration namespaces
-with vars that are conf keys. The docstrings explain the settings.
+The core configuration properties:
 
-Here's an example of a complicated cache conf:
+#### mc/type
+
+Cache implementation type, e.g. caffeine, redis, see the implementation library docs. **Make sure
+you load the implementation namespace at some point!**. Caffeine namespace is loaded automatically
+when memento.core is loaded.
+
+#### mc/size<
+
+Size limit expressed in number of entries or total weight if implementation supports weighted cache entries
+
+#### mc/ttl
+
+Entry is invalid after this amount of time has passed since its creation
+
+It's either a number (of seconds), a pair describing duration e.g. `[10 :m]` for 10 minutes,
+see `memento.config/timeunits` for timeunits.
+
+#### mc/fade
+
+Entry is invalid after this amount of time has passed since last access, see `mc/ttl` for duration
+specification.
+
+#### mc/key-fn, mc/key-fn*
+
+Specify a function that will transform the function arg list into the final cache key. Used 
+to drop function arguments that shouldn't factor into cache entry equality.
+
+The `key-fn` receives a sequence of arguments, `key-fn*` receives multiple arguments as if it
+was the function itself.
+
+See: [Changing the key for cached entry](doc/key-fn.md)
+
+#### mc/ret-fn
+
+A function that is called on every cached function return value. Used for general transformations
+of return values.
+
+#### mc/seed
+
+Initial entries to load in the cache.
+
+#### mc/initial-capacity
+
+Cache capacity hint to implementation.
+
+## Conf is a value (map)
+
+Cache conf can get quite involved:
 
 ```clojure
 (ns memento.tryout
   (:require [memento.core :as m]
     ; general cache conf keys
             [memento.config :as mc]
-    ; guava specific cache conf keys
-            [memento.guava.config :as mcg]))
+    ; caffeine specific cache conf keys
+            [memento.caffeine.config :as mcc]))
 
 (def my-weird-cache
-  "Conf for guava cache that caches up to 20 seconds and up to 30 entries, uses weak
+  "Conf for caffeine cache that caches up to 20 seconds and up to 30 entries, uses weak
   references and prints when keys get evicted."
-  {mc/type mc/guava
+  {mc/type mc/caffeine
    mc/size< 30
    mc/ttl 20
-   mcg/weak-values true
-   mcg/removal-listener #(println (apply format "Function %s key %s, value %s got evicted because of %s" %&))})
+   mcc/weak-values true
+   mcc/removal-listener #(println (apply format "Function %s key %s, value %s got evicted because of %s" %&))})
 
-(defn my-function [x] (* 2 x))
-(m/memo #'my-function my-weird-cache)
+(m/defmemo my-function
+  {::m/cache my-weird-cache}
+  [x] (* 2 x))
 ```
 
-Read doc strings in `memento.config` and `memento.guava.config` namespaces for available on cache properties.
-
-**I suggest you collect cache configurations you commonly use in a namespace
-and reuse them in your code, to keep the code brief.**
-
-Create a namespace like `myproject.cache` and write vars like:
-```clojure
-(def inf {mc/type mc/guava}) ; infinite cache
-```
-
-and then simply use it everywhere in your project:
+Seeing as cache conf is a map, I recommend a pattern where you have a namespace in your application that contains vars
+with your commonly used cache conf maps and functions that generate slightly parameterized
+configuration. E.g.
 
 ```clojure
-(ns myproject.some-ns
-  (:require [myproject.cache :as cache]
-            [memento.core :as m]))
+(ns my-project.cache
+  (:require [memento.config :as mc]))
 
-; simply use value for conf 
-(m/memo #'myfunction cache/inf)
+;; infinite cache
+(def inf-cache {mc/type mc/caffeine})
+
+(defn for-seconds [n] (assoc inf-cache mc/ttl n))
 ```
 
-Another example using tags, scoped caches and tagged eviction:
+Then you just use that in your code:
+
+```clojure
+(m/defmemo my-function
+  {::m/cache (cache/for-seconds 60)}
+  [x] (* x 2))
+```
+
+## Caches and mount points
+
+Enabling memoization of a function is composed of two distinct steps:
+
+- creating a Cache (optional, as you can use an existing cache)
+- binding the cache to the function (a MountPoint is used to connect a function being memoized to the cache)
+
+A cache, an instance of memento.base/Cache, can contain entries from multiple functions and can be shared between memoized functions.
+Each memoized function is bound to a Cache via MountPoint. When you call a function such as `(m/as-map a-cached-function)` you are 
+operating on a MountPoint.
+
+The reason for this separation is two-fold:
+
+#### 1. **Improved Size Based Eviction**
+
+So far all examples implicitly created a new cache for each memoized function, but if we use same cache for multiple 
+functions, then any size based eviction will apply to them as a whole. If you have 100 memoized functions, and you want to
+somewhat limit their memory use, what do you do? In a typical cache library you might limit each of them to 100 entries. So you
+allocated 10000 slots total, but one function might have an empty cache, while a very heavily used one needs way more than 100
+slots. If all 100 function are backed by same Cache instance with 10000 slots then they automatically balance themselves out.
+
+#### 2. **Changing cache temporarily to allow for scoped caching**
+
+This indirection with Mount Points allows us to change which cache is backing a function dynamically. See discussion of tagged
+caches below. Here's an example of using tags when caching and scoped caching
 
 ```clojure
 (ns myproject.some-ns
@@ -142,18 +233,7 @@ Another example using tags, scoped caches and tagged eviction:
   (get-person-by-id 5))
 ```
 
-## Major concepts (cache, bind and mount point)
-
-Enabling memoization of a function is composed of two distinct steps:
-
-- creating a Cache (optional, as you can use an existing cache)
-- binding the cache to the function (a MountPoint is used to connect a function being memoized to the cache)
-
-[Read about these core concepts here.](doc/major.md)
-
 ## Additional features
-
-#### [Changing the key for cached entry](doc/key-fn.md)
 
 #### [Prevent caching of a specific return value (and general return value xform)](doc/ret-fn.md)
 
@@ -163,12 +243,6 @@ Enabling memoization of a function is composed of two distinct steps:
 #### `(m/memoized? a-function)` returns true if the function is memoized
 #### `(m/memo-unwrap memoized-function)` returns original uncached function, also works on MountPoint instances
 #### `(m/active-cache memoized-function)` returns Cache instance from the function, if present.
-
-#### Additional utility
-
-- `(m/as-map memoized-function)` -> map of cache entries, also works on MountPoint instances
-- `(m/memoized? a-function)` -> returns true if the function is memoized
-- `(m/memo-unwrap memoized-function)` -> returns original uncached function, also works on MountPoint instances
 
 ## Tags 
 
@@ -236,6 +310,7 @@ Set `-Dmemento.reloadable=false` JVM option (or change `memento.config/reload-gu
 
 ## Breaking changes
 
+Version 1.0.x changed implementation from Guava to Caffeine
 Version 0.9.0 introduced many breaking changes.
 
 ## License

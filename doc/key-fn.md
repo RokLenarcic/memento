@@ -1,17 +1,18 @@
 # Changing the key for cached entry
 
 Add `:memento.core/key-fn` to cache or mount config (or use `mc/key-fn` value) to specify a function with which to manipulate
-the key cache will use for the entry.
-
-Example building on previous suggested `cache/inf` cache configuration:
+the key cache will use for the entry. 
 
 ```clojure
-(defn get-person-by-id [db-conn account-id person-id] {})
+(defn get-person-by-id
+  [db-conn account-id person-id] 
+  {})
 
 ; when creating the cache key, remove db connection
-(m/memo #'get-person-by-id (assoc cache/inf-cache mc/key-fn #(remove db-conn? %)))
-; or more explicit
-(m/memo #'get-person-by-id {mc/type mc/guava mc/key-fn #(remove db-conn? %)})
+(m/memo #'get-person-by-id {mc/type mc/caffeine mc/key-fn #(remove db-conn? %)})
+; or use key-fn*
+(m/memo #'get-person-by-id {mc/type mc/caffeine 
+                            mc/key-fn* (fn [db-conn account-id person-id] [account-id person-id])})
 ```
 
 When creating the cache key, remove db connection, so the cache uses `[account-id person-id]` as key.
@@ -24,7 +25,8 @@ Another example:
 
 ;; clearly the cache hit is based on a deeply nested property out of a huge request map
 ;; so we want to use that as basis for caching
-(m/memo #'return-my-user-info-json (assoc cache/inf-cache mc/key-fn #(-> % first :session :user-id)))
+(m/memo #'return-my-user-info-json {mc/type mc/caffeine 
+                                    mc/key-fn* #(-> % :session :user-id)})
 ```
 
 **This is both a mount conf setting, and a cache setting.** The obvious difference is that specifying

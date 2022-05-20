@@ -32,7 +32,7 @@
 
    The library has two built-ins:
   - memento.core/none
-  - memento.core/guava
+  - memento.core/caffeine
 
   If not specified the caches created default to *default-type*."
   :memento.core/type)
@@ -74,23 +74,24 @@
   "Function bind setting, a map of cache keys to values that will be preloaded when cache is bound."
   :memento.core/seed)
 
-(def guava
-  "Cache setting value, type name of guava cache implementation"
-  :memento.core/guava)
+(def ^:deprecated guava
+  "DEPRECATED: Cache setting value, now points to caffeine implementation"
+  :memento.core/caffeine)
+
+(def caffeine
+  "Cache setting value, type name of Caffeine cache implementation"
+  :memento.core/caffeine)
 
 (def none
   "Cache setting value, type name of noop cache implementation"
   :memento.core/none)
 
-(def concurrency
-  "Cache setting, supported by: guava, an int.
-
-  Guides the allowed concurrency among update operations.  The table is internally partitioned to try to permit
-  the indicated number of concurrent updates without contention"
+(def ^:deprecated concurrency
+  "DEPRECATED: it does nothing in Caffeine implementation"
   :memento.core/concurrency)
 
 (def initial-capacity
-  "Cache setting, supported by: guava, an int.
+  "Cache setting, supported by: caffeine, an int.
 
   Sets the minimum total size for the internal hash tables. Providing a large enough estimate
   at construction time avoids the need for expensive resizing operations later,
@@ -98,14 +99,14 @@
   :memento.core/initial-capacity)
 
 (def size<
-  "Cache setting, supported by: guava, a long.
+  "Cache setting, supported by: caffeine, a long.
 
   Specifies the maximum number of entries the cache may contain. Some implementations might evict entries
   even before the number of entries reaches the limit."
   :memento.core/size<)
 
 (def ttl
-  "Cache setting, supported by: guava, a duration.
+  "Cache setting, supported by: caffeine, a duration.
 
   Specifies that each entry should be automatically removed from the cache once a fixed duration
   has elapsed after the entry's creation, or the most recent replacement of its value via a put.
@@ -115,7 +116,7 @@
   :memento.core/ttl)
 
 (def fade
-  "Cache setting, supported by: guava, a duration.
+  "Cache setting, supported by: caffeine, a duration.
 
   Specifies that each entry should be automatically removed from the cache once a fixed duration
   has elapsed after the entry's creation, the most recent replacement of its value, or its last access.
