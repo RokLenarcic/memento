@@ -12,6 +12,11 @@ Version 1.0 represents a switch from Guava to Caffeine, which is a faster cachin
 benefit of not pulling in the whole Guava artefact which is more that just that Cache. The Guava Cache type
 key and the config namespace are deprecated and will be removed in the future.
 
+## Caffeine version notice
+
+This library uses Caffeine 2.9.3 as dependency as that version is Java 8 compatible. If you are using
+Java 11 or better you should use it with Caffeine 3.x.
+
 ## Motivation
 
 Why is there a need for another caching library?
