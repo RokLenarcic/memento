@@ -2,6 +2,7 @@
   (:require [memento.mount :as m]
             [memento.base :as b]
             [memento.config :as mc]
+            [memento.core :as core]
             [clojure.test :refer :all]))
 
 (deftest cache-tags-test
@@ -39,3 +40,42 @@
     "#'clojure.core/inc" #'inc {}
     :x #'inc {mc/id :x}
     :x inc {mc/id :x}))
+
+(def a (atom 0))
+
+(defn add-prefix
+  [x]
+  (swap! a inc)
+  (str "prefix-" x))
+
+(defn add-suffix
+  [x]
+  (swap! a + 10)
+  (str (add-prefix x) "-suffix"))
+
+(core/memo #'add-prefix {mc/tags [:test]})
+(core/memo #'add-suffix {mc/tags [:test]})
+
+(defn fib
+  [x]
+  (if (<= x 1) 1 (+ (fib (dec x)) (fib (dec (dec x))))))
+
+(core/memo #'fib {mc/cache {mc/tags [:test]}})
+
+(deftest recursive-call-test
+  (testing "Call same cache recursively."
+    (let [_ (reset! a 0)
+          c (core/create {mc/type mc/caffeine})]
+      (is (= "prefix-A-suffix"
+             (core/with-caches
+               :test (constantly c)
+               (add-suffix "A")
+               (add-suffix "A")
+               (add-suffix "A"))))
+      (is (= @a 11))))
+  (testing "Call same cache function recursively."
+    (let [c (core/create {mc/type mc/caffeine
+                          mc/initial-capacity 4})]
+      (core/with-caches
+        :test (constantly c)
+        (is (= 10946 (fib 20)))))))
