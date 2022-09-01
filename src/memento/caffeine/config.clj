@@ -56,7 +56,8 @@
   The identity comparison makes this not very useful."
   :memento.caffeine/weak-keys)
 
-(def weak-values
+;; these don't work with our values, we will have to do the work ourselves (future version)
+#_(def weak-values
   "Cache setting, corresponds to .weakValues on CacheBuilder.
 
   Boolean flag, enabling storing values using weak references.
@@ -64,7 +65,7 @@
   This allows entries to be garbage-collected if there are no other (strong or soft) references to the values."
   :memento.caffeine/weak-values)
 
-(def soft-values
+#_(def soft-values
   "Cache setting, corresponds to .softValues on CacheBuilder.
 
   Boolean flag, enabling storing values using soft references.

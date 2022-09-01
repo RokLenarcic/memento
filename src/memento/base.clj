@@ -33,7 +33,7 @@
     - segment is Segment record provided by the mount point, it contains information that allows Cache
     to separate caches for different functions")
   (if-cached [this segment args]
-    "Return cached value if present in cache or memento.base/absent otherwise.")
+    "Return cached value if present (and available immediately) in cache or memento.base/absent otherwise.")
   (invalidate [this segment] [this segment args]
     "Invalidate all the entries linked to a mount or a mount's single arg list, return Cache")
   (invalidate-all [this] "Invalidate all entries, returns Cache")
