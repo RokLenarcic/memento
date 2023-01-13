@@ -5,7 +5,8 @@
   extensions."
   {:author "Rok Lenarčič"}
   (:require [memento.config :as config])
-  (:import (java.util.concurrent TimeUnit)))
+  (:import (clojure.lang AFn)
+           (java.util.concurrent TimeUnit)))
 
 (def absent "Value that signals absent key." (Object.))
 
@@ -47,7 +48,7 @@
 (def no-cache
   (reify Cache
     (conf [this] {config/type config/none})
-    (cached [this segment args] (unwrap-meta (apply (:f segment) args)))
+    (cached [this segment args] (unwrap-meta (AFn/applyToHelper (:f segment) args)))
     (if-cached [this segment args] absent)
     (invalidate [this segment] this)
     (invalidate [this segment args] this)

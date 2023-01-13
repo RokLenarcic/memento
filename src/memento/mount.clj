@@ -3,7 +3,8 @@
   multiple functions and the individual functions."
   {:author "Rok Lenarčič"}
   (:require [memento.base :as base]
-            [memento.config :as config]))
+            [memento.config :as config])
+  (:import (clojure.lang AFn)))
 
 (def ^:dynamic *caches* "Contains map of mount point to cache instance" {})
 (def tags "Map tag to mount-point" (atom {}))
@@ -83,11 +84,11 @@
   [f cache mount-conf]
   (let [key-fn (or (config/key-fn mount-conf)
                    (when-let [base (config/key-fn* mount-conf)]
-                     (fn [args] (apply base args)))
+                     (fn [args] (AFn/applyToHelper base args)))
                    identity)
         evt-fn (config/evt-fn mount-conf (fn [_ _] nil))
         f* (if-let [ret-fn (config/ret-fn mount-conf)]
-             (fn [& args] (ret-fn args (apply f args)))
+             (fn [& args] (ret-fn args (AFn/applyToHelper f args)))
              f)
         segment (base/->Segment f* key-fn (mount-conf config/id f))]
     (if-let [t (config/tags mount-conf)]

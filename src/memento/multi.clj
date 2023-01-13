@@ -1,6 +1,7 @@
 (ns memento.multi
   {:author "Rok Lenarčič"}
-  (:require [memento.base :as b]))
+  (:require [memento.base :as b])
+  (:import (clojure.lang AFn)))
 
 (defrecord MultiCache [cache upstream conf cached-fn]
   b/Cache
@@ -78,7 +79,7 @@
                                              (fn [& processed-args]
                                                (let [up-val (b/if-cached upstream segment args)]
                                                  (if (= b/absent up-val)
-                                                   (apply oldf processed-args)
+                                                   (AFn/applyToHelper oldf processed-args)
                                                    up-val))))]
                       (b/cached cache (update segment :f upstream-or-calc) args)))]
     (->MultiCache cache upstream conf cached-fn)))

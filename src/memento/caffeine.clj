@@ -3,7 +3,8 @@
   {:author "Rok Lenarčič"}
   (:require [memento.mount :as mount]
             [memento.base :as b])
-  (:import (java.util Iterator HashSet)
+  (:import (clojure.lang AFn IFn)
+           (java.util Iterator HashSet)
            (java.util.concurrent ConcurrentHashMap CompletableFuture ExecutionException)
            (memento.base EntryMeta)
            (java.util.function BiFunction)
@@ -110,7 +111,7 @@
   (conf [this] conf)
   (cached [this segment args]
     (b/unwrap-meta
-      (let [f (if ret-fn (fn [& args] (ret-fn args (apply (:f segment) args))) (:f segment))
+      (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (:f segment) args))) (:f segment))
             k (->key-fn segment args)
             fut (CompletableFuture.)]
         (if-some [^CompletableFuture prev-fut (-> caffeine-cache .asMap (.putIfAbsent k fut))]
@@ -119,7 +120,7 @@
             (catch ExecutionException e
               (throw (.getCause e))))
           (try
-            (let [result (apply f args)]
+            (let [result (AFn/applyToHelper f args)]
               (sec-index-conj-entry sec-index k result)
               (.complete fut (when-not (and (instance? EntryMeta result) (:no-cache? result))
                                (if (nil? result) wrapped-nil result)))
