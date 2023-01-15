@@ -1,6 +1,5 @@
 # Performance
 
-## outdated
 Performance is not a dedicated goal of this library, but here's some numbers:
 
 ```clojure
@@ -16,32 +15,34 @@ Performance is not a dedicated goal of this library, but here's some numbers:
 #### All hits
 ```text
 (cc/bench (f-memoize 1))
-Evaluation count : 573973500 in 60 samples of 9566225 calls.
-             Execution time mean : 100,615709 ns
-    Execution time std-deviation : 7,491582 ns
-   Execution time lower quantile : 92,569005 ns ( 2,5%)
-   Execution time upper quantile : 117,957469 ns (97,5%)
-                   Overhead used : 7,616991 ns
+Evaluation count : 1546493460 in 60 samples of 25774891 calls.
+             Execution time mean : 31,903999 ns
+    Execution time std-deviation : 4,406628 ns
+   Execution time lower quantile : 25,492342 ns ( 2,5%)
+   Execution time upper quantile : 43,308680 ns (97,5%)
+                   Overhead used : 7,742808 ns
 
-Found 2 outliers in 60 samples (3,3333 %)
-	low-severe	 2 (3,3333 %)
- Variance from outliers : 55,1583 % Variance is severely inflated by outliers
+Found 4 outliers in 60 samples (6,6667 %)
+	low-severe	 3 (5,0000 %)
+	low-mild	 1 (1,6667 %)
+ Variance from outliers : 82,3854 % Variance is severely inflated by outliers
 ```
 
-#### 1M misses (740ns per miss)
+#### 1M misses (886ns per miss)
 ```text
 (cc/bench (let [f-memoize (memoize identity)]
             (reduce #(f-memoize %2) (range 1000000))))
 Evaluation count : 120 in 60 samples of 2 calls.
-             Execution time mean : 746,383750 ms
-    Execution time std-deviation : 40,427585 ms
-   Execution time lower quantile : 699,218001 ms ( 2,5%)
-   Execution time upper quantile : 849,163469 ms (97,5%)
-                   Overhead used : 6,449047 ns
+             Execution time mean : 886,890064 ms
+    Execution time std-deviation : 122,979964 ms
+   Execution time lower quantile : 743,431812 ms ( 2,5%)
+   Execution time upper quantile : 1,157114 sec (97,5%)
+                   Overhead used : 7,742808 ns
 
-Found 2 outliers in 60 samples (3,3333 %)
-	low-severe	 2 (3,3333 %)
- Variance from outliers : 40,1256 % Variance is moderately inflated by outliers
+Found 14 outliers in 60 samples (23,3333 %)
+	low-severe	 10 (16,6667 %)
+	low-mild	 4 (6,6667 %)
+ Variance from outliers : 82,3928 % Variance is severely inflated by outliers
 ```
 
 ## Clojure Core Memoize
@@ -50,46 +51,52 @@ Found 2 outliers in 60 samples (3,3333 %)
 
 ```text
 (cc/bench (f-core-memo 1))
-Evaluation count : 103323900 in 60 samples of 1722065 calls.
-             Execution time mean : 586,999356 ns
-    Execution time std-deviation : 27,063768 ns
-   Execution time lower quantile : 566,131127 ns ( 2,5%)
-   Execution time upper quantile : 643,946885 ns (97,5%)
-                   Overhead used : 6,449047 ns
+Evaluation count : 160426440 in 60 samples of 2673774 calls.
+             Execution time mean : 391,539866 ns
+    Execution time std-deviation : 40,805008 ns
+   Execution time lower quantile : 364,195529 ns ( 2,5%)
+   Execution time upper quantile : 499,366982 ns (97,5%)
+                   Overhead used : 7,742808 ns
 
-Found 2 outliers in 60 samples (3,3333 %)
-	low-severe	 2 (3,3333 %)
- Variance from outliers : 31,9721 % Variance is moderately inflated by outliers
+Found 7 outliers in 60 samples (11,6667 %)
+	low-severe	 7 (11,6667 %)
+ Variance from outliers : 72,0439 % Variance is severely inflated by outliers
 ```
 
-#### 1M misses (1570 ns per miss)
+#### 1M misses (1610 ns per miss)
 
 ```text
 (cc/bench (let [f-core-memo (ccm/memo identity)]
             (reduce #(f-core-memo %2) (range 1000000))))
 Evaluation count : 60 in 60 samples of 1 calls.
-             Execution time mean : 1,577084 sec
-    Execution time std-deviation : 101,892266 ms
-   Execution time lower quantile : 1,494426 sec ( 2,5%)
-   Execution time upper quantile : 1,850834 sec (97,5%)
-                   Overhead used : 6,449047 ns
+             Execution time mean : 1,612648 sec
+    Execution time std-deviation : 278,357346 ms
+   Execution time lower quantile : 1,367147 sec ( 2,5%)
+   Execution time upper quantile : 2,382284 sec (97,5%)
+                   Overhead used : 7,742808 ns
 
-Found 3 outliers in 60 samples (5,0000 %)
+Found 5 outliers in 60 samples (8,3333 %)
 	low-severe	 3 (5,0000 %)
- Variance from outliers : 48,4403 % Variance is moderately inflated by outliers
+	low-mild	 2 (3,3333 %)
+ Variance from outliers : 87,6513 % Variance is severely inflated by outliers
 ```
 
-#### 1M misses for size 100 LRU cache (3800 ns per miss)
+#### 1M misses for size 100 LRU cache (4470 ns per miss)
 
 ```text
 (cc/bench (let [f-core-memo (ccm/lru identity :lru/threshold 100)]
             (reduce #(f-core-memo %2) (range 1000000))))
 Evaluation count : 60 in 60 samples of 1 calls.
-             Execution time mean : 3,808455 sec
-    Execution time std-deviation : 182,401054 ms
-   Execution time lower quantile : 3,570840 sec ( 2,5%)
-   Execution time upper quantile : 4,186359 sec (97,5%)
-                   Overhead used : 6,449047 ns
+             Execution time mean : 4,472011 sec
+    Execution time std-deviation : 170,058847 ms
+   Execution time lower quantile : 4,305469 sec ( 2,5%)
+   Execution time upper quantile : 4,898280 sec (97,5%)
+                   Overhead used : 7,742808 ns
+
+Found 5 outliers in 60 samples (8,3333 %)
+	low-severe	 5 (8,3333 %)
+ Variance from outliers : 23,8745 % Variance is moderately inflated by outliers
+
 ```
 
 ## Memento
@@ -99,47 +106,41 @@ Evaluation count : 60 in 60 samples of 1 calls.
 ```text
 (cc/bench (f-memento 1))
 
-Evaluation count : 151836660 in 60 samples of 2530611 calls.
-             Execution time mean : 372,489623 ns
-    Execution time std-deviation : 16,214492 ns
-   Execution time lower quantile : 348,557998 ns ( 2,5%)
-   Execution time upper quantile : 405,567622 ns (97,5%)
-                   Overhead used : 6,642759 ns
-
-Found 2 outliers in 60 samples (3,3333 %)
-	low-severe	 1 (1,6667 %)
-	low-mild	 1 (1,6667 %)
- Variance from outliers : 30,2885 % Variance is moderately inflated by outliers
+Evaluation count : 168834720 in 60 samples of 2813912 calls.
+             Execution time mean : 379,041867 ns
+    Execution time std-deviation : 17,696509 ns
+   Execution time lower quantile : 352,242486 ns ( 2,5%)
+   Execution time upper quantile : 413,248058 ns (97,5%)
+                   Overhead used : 7,742808 ns
 ```
 
-#### 1M misses (1012 ns per miss)
+#### 1M misses (791 ns per miss)
 
 ```text
 (cc/bench (let [f-memento (m/memo identity {::m/type ::m/caffeine})]
             (reduce #(f-memento %2) (range 1000000))))
 Evaluation count : 60 in 60 samples of 1 calls.
-             Execution time mean : 1,012604 sec
-    Execution time std-deviation : 110,303492 ms
-   Execution time lower quantile : 818,881769 ms ( 2,5%)
-   Execution time upper quantile : 1,191126 sec (97,5%)
-                   Overhead used : 6,642759 ns
+             Execution time mean : 791,564839 ms
+    Execution time std-deviation : 202,175087 ms
+   Execution time lower quantile : 525,390526 ms ( 2,5%)
+   Execution time upper quantile : 1,324654 sec (97,5%)
+                   Overhead used : 7,742808 ns
+
+Found 2 outliers in 60 samples (3,3333 %)
+	low-severe	 2 (3,3333 %)
+ Variance from outliers : 94,6397 % Variance is severely inflated by outliers
 => nil
 ```
 
-#### 1M misses for size 100 LRU cache (321 ns per miss)
+#### 1M misses for size 100 LRU cache (202 ns per miss)
 
 ```text
 (cc/bench (let [f-memento (m/memo {::m/size< 100 ::m/type ::m/caffeine} identity)]
             (reduce #(f-memento %2) (range 1000000))))
 Evaluation count : 240 in 60 samples of 4 calls.
-             Execution time mean : 321,756947 ms
-    Execution time std-deviation : 21,255531 ms
-   Execution time lower quantile : 273,183616 ms ( 2,5%)
-   Execution time upper quantile : 369,558286 ms (97,5%)
-                   Overhead used : 6,642759 ns
-
-Found 3 outliers in 60 samples (5,0000 %)
-	low-severe	 1 (1,6667 %)
-	low-mild	 2 (3,3333 %)
- Variance from outliers : 50,0737 % Variance is severely inflated by outliers
+             Execution time mean : 202,618212 ms
+    Execution time std-deviation : 36,929352 ms
+   Execution time lower quantile : 120,895867 ms ( 2,5%)
+   Execution time upper quantile : 266,305832 ms (97,5%)
+                   Overhead used : 7,742808 ns
 ```

@@ -4,7 +4,8 @@
             [memento.core :as m]
             [memento.config :as mc]
             [memento.caffeine :refer :all]
-            [memento.caffeine.config :as mcc]))
+            [memento.caffeine.config :as mcc])
+  (:import (memento.caffeine CacheKey)))
 
 #_(deftest cache-creation
   (testing "Creates a cache builder"
@@ -54,4 +55,4 @@
     (let [c (m/memo identity {mc/type mc/caffeine mc/id "A"})]
       (load-data (m/active-cache c) {["X" '(4)] 5})
       (is (= (b/as-map (m/active-cache c))
-             {#memento.caffeine.CacheKey{:args (4) :id "X"} 5})))))
+             {(CacheKey. "X" [4]) 5})))))

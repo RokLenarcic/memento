@@ -2,11 +2,12 @@
   (:require [memento.core :as m]
             [memento.base :as b]
             [memento.config :as mc]
-            [clojure.test :refer :all]))
+            [clojure.test :refer :all])
+  (:import (memento.caffeine CacheKey)))
 
 (def inf-cache {mc/type mc/caffeine})
 
-(defn as-map [cache] (reduce-kv #(assoc %1 (:args %2) %3) {} (b/as-map cache)))
+(defn as-map [cache] (reduce-kv #(assoc %1 (.getArgs ^CacheKey %2) %3) {} (b/as-map cache)))
 
 (deftest daisy-test
   (testing ""

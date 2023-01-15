@@ -6,57 +6,38 @@
   {:author "Rok Lenarčič"}
   (:require [memento.config :as config])
   (:import (clojure.lang AFn)
-           (java.util.concurrent TimeUnit)))
+           (java.util.concurrent TimeUnit)
+           (memento.base EntryMeta ICache)))
 
 (def absent "Value that signals absent key." (Object.))
 
-(defrecord EntryMeta [v no-cache? tag-idents])
-; Segment has 3 properties:
-; - fn to run
-; - key-fn to apply for keys from this segment
-; - segment ID, use this rather than f to separate segments in cache
-(defrecord Segment [f key-fn id])
-
-(defn unwrap-meta [o] (if (instance? EntryMeta o) (:v o) o))
-
-(defprotocol Cache
-  "Protocol for Cache. It houses entries for multiple functions.
-
-  Most functions receive a Segment object that should be used to partition for different functions
-  and using other :
-  - id: use for separating caches, it is either name specified by user's config, or var name or function object
-  - key-fn: key-fn from mount point, use this to generate cache key
-  - f: use this function to load values"
-  (conf [this] "Return the conf for this cache.")
-  (cached [this segment args]
-    "Return the cache value.
-
-    - segment is Segment record provided by the mount point, it contains information that allows Cache
-    to separate caches for different functions")
-  (if-cached [this segment args]
-    "Return cached value if present (and available immediately) in cache or memento.base/absent otherwise.")
-  (invalidate [this segment] [this segment args]
-    "Invalidate all the entries linked to a mount or a mount's single arg list, return Cache")
-  (invalidate-all [this] "Invalidate all entries, returns Cache")
-  (invalidate-id [this id] "Invalidate entries with this secondary ID, returns Cache")
-  (put-all [this segment args-to-vals] "Add entries as for a function")
-  (as-map [this] [this segment]
-    "Return all entries in the cache or all entries in the cache for a mount.
-     The first variant returns a map with keys shaped like as per cache implementation, the second returns just some
-     sort of a substructure of the first."))
+(defn unwrap-meta [o] (if (instance? EntryMeta o) (.getV ^EntryMeta o) o))
 
 (def no-cache
-  (reify Cache
+  (reify ICache
     (conf [this] {config/type config/none})
-    (cached [this segment args] (unwrap-meta (AFn/applyToHelper (:f segment) args)))
-    (if-cached [this segment args] absent)
+    (cached [this segment args] (unwrap-meta (AFn/applyToHelper (.getF segment) args)))
+    (ifCached [this segment args] absent)
     (invalidate [this segment] this)
     (invalidate [this segment args] this)
-    (invalidate-all [this] this)
-    (invalidate-id [this id] this)
-    (put-all [this f args-to-vals] this)
-    (as-map [this] {})
-    (as-map [this segment] {})))
+    (invalidateAll [this] this)
+    (invalidateId [this id] this)
+    (addEntries [this f args-to-vals] this)
+    (asMap [this] {})
+    (asMap [this segment] {})))
+
+(defn conf [^ICache icache] (.conf icache))
+(defn cached [^ICache icache segment args] (.cached icache segment args))
+(defn if-cached [^ICache icache segment args] (.ifCached icache segment args))
+(defn invalidate
+  ([^ICache icache segment args] (.invalidate icache segment args))
+  ([^ICache icache segment] (.invalidate icache segment)))
+(defn invalidate-all [^ICache icache] (.invalidateAll icache))
+(defn invalidate-id [^ICache icache id] (.invalidateId icache id))
+(defn put-all [^ICache icache f args-to-vals] (.addEntries icache f args-to-vals))
+(defn as-map
+  ([^ICache icache] (.asMap icache))
+  ([^ICache icache segment] (.asMap icache segment)))
 
 (defmulti new-cache "Instantiate cache. Extension point, do not call directly." config/type)
 
@@ -84,7 +65,7 @@
 
   A conf is a map of cache settings, see memento.config namespace for names of settings."
   [conf]
-  (if (satisfies? Cache conf)
+  (if (instance? ICache conf)
     conf
     (if config/enabled?
       (new-cache (merge {config/type config/*default-type*} conf))

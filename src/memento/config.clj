@@ -37,6 +37,14 @@
   If not specified the caches created default to *default-type*."
   :memento.core/type)
 
+(def bind-mode
+  "Function bind setting, defaults to :new. It governs what the bind will do if you try to bind
+  a cache to a function that is already cached. Options are:
+  - :keep, keeps old cache binding
+  - :new, keeps the new cache binding
+  - :stack, stacks the caches"
+  :memento.core/bind-mode)
+
 (def key-fn
   "Cache and function bind setting, a function to be used to calculate the cache key (fn [f-args] key).
 

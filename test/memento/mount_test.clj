@@ -34,7 +34,7 @@
 
 (deftest id-test
   (are [expected-id fn-or-var conf]
-    (= expected-id (-> (m/bind fn-or-var conf b/no-cache) m/mount-point :segment :id))
+    (= expected-id (-> (m/bind fn-or-var conf b/no-cache) .getMp .segment .getId))
     inc inc {}
     inc inc :a
     "#'clojure.core/inc" #'inc {}

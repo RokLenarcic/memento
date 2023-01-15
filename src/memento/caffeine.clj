@@ -1,18 +1,14 @@
 (ns memento.caffeine
   "Caffeine cache implementation."
   {:author "Rok Lenarčič"}
-  (:require [memento.mount :as mount]
-            [memento.base :as b])
-  (:import (clojure.lang AFn IFn)
-           (java.util Iterator HashSet)
+  (:require [memento.base :as b])
+  (:import (clojure.lang AFn)
+           (java.util Iterator)
            (java.util.concurrent ConcurrentHashMap CompletableFuture ExecutionException)
-           (memento.base EntryMeta)
-           (java.util.function BiFunction)
-           (com.github.benmanes.caffeine.cache RemovalListener Caffeine Weigher Ticker AsyncCache)))
-
-(defrecord CacheKey [id args])
-
-(def wrapped-nil (b/->EntryMeta nil false #{}))
+           (memento.base EntryMeta ICache Segment)
+           (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker AsyncCache)
+           (memento.caffeine CacheKey SecondaryIndexOps)
+           (memento.mount IMountPoint)))
 
 (defn conf->sec-index
   "Creates secondary index for evictions"
@@ -21,37 +17,6 @@
                       (float 0.75)
                       (or concurrency 4)))
 
-(defn sec-index-conj-entry
-  "Add entry to secondary index.
-  k is CacheKey of incoming Cache entry
-  v is value of incoming cache entry, might be EntryMeta, if it is then we use each tag-idents
-  as key (id) pointing to a HashSet of CacheKeys.
-
-  For each ID we add CacheKey to its HashSet."
-  [^ConcurrentHashMap sec-index k v]
-  (let [conj-bifunction (reify BiFunction
-                          (apply [this _ prev-v]
-                            (doto (or ^HashSet prev-v (HashSet.))
-                              (.add k))))]
-    (doseq [id (when (instance? EntryMeta v) (:tag-idents v))]
-      (.compute sec-index id conj-bifunction))
-    v))
-
-(defn sec-index-disj-entry
-  "Remove value from secondary index, processing EntityMeta if there is one.
-
-  k is CacheKey of Cache entry being removed
-  v is value of Cache entry, might be EntryMeta, if it is then we use each of tag-idents as key (id)
-  pointing to a HashSet. We remove CacheKey from each set, removing the whole entry if the resulting
-  set is empty."
-  [^ConcurrentHashMap sec-index k v]
-  (let [disj-bifunction (reify BiFunction
-                          (apply [this _ hash-set]
-                            (.remove ^HashSet hash-set k)
-                            (when-not (.isEmpty ^HashSet hash-set) hash-set)))]
-    (doseq [id (when (instance? EntryMeta v) (:tag-idents v))]
-      (.computeIfPresent sec-index id disj-bifunction))))
-
 (defn ^Caffeine conf->builder
   "Creates and configures common parameters on the builder."
   [{:memento.core/keys [initial-capacity size< ttl fade]
@@ -59,25 +24,16 @@
                             soft-values refresh stats ticker]}
    sec-index]
   (let [listener (if removal-listener
-                   (reify RemovalListener
-                     (onRemoval [this k v reason]
-                       (sec-index-disj-entry sec-index k v)
-                       (removal-listener
-                         (.id ^CacheKey k)
-                         (.args ^CacheKey k)
-                         (b/unwrap-meta v)
-                         reason)))
-                   (reify RemovalListener
-                     (onRemoval [this k v reason]
-                       (sec-index-disj-entry sec-index k v))))]
+                   (SecondaryIndexOps/listener sec-index removal-listener)
+                   (SecondaryIndexOps/listener sec-index))]
     (cond-> (.removalListener (Caffeine/newBuilder) listener)
       initial-capacity (.initialCapacity initial-capacity)
       weight< (.maximumWeight weight<)
       size< (.maximumSize size<)
       kv-weight (.weigher
                   (reify Weigher (weigh [_this k v]
-                                   (kv-weight (.id ^CacheKey k)
-                                              (.args ^CacheKey k)
+                                   (kv-weight (.getId ^CacheKey k)
+                                              (.getArgs ^CacheKey k)
                                               (b/unwrap-meta v)))))
       weak-keys (.weakKeys)
       ;; These are disallowed in Async caches
@@ -94,7 +50,7 @@
   "Converts val into cache friendly version. The problem is that AsyncCache has 'smart' feature where
   it will delete entries where CompletableFuture has nil value or exception value."
   [v]
-  (CompletableFuture/completedFuture (if (nil? v) wrapped-nil v)))
+  (CompletableFuture/completedFuture (if (nil? v) (EntryMeta. nil false #{}) v)))
 
 (defn assoc-imm-val!
   "If cached value is a completable future with immediately available value, assoc it to transient."
@@ -107,11 +63,11 @@
 ;;;;;;;;;;;;;;
 ; ->key-fn take 2 args f and key
 (defrecord CaffeineCache [conf ^AsyncCache caffeine-cache ->key-fn ret-fn ^ConcurrentHashMap sec-index]
-  b/Cache
+  ICache
   (conf [this] conf)
   (cached [this segment args]
     (b/unwrap-meta
-      (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (:f segment) args))) (:f segment))
+      (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (.getF segment) args))) (.getF segment))
             k (->key-fn segment args)
             fut (CompletableFuture.)]
         (if-some [^CompletableFuture prev-fut (-> caffeine-cache .asMap (.putIfAbsent k fut))]
@@ -121,45 +77,46 @@
               (throw (.getCause e))))
           (try
             (let [result (AFn/applyToHelper f args)]
-              (sec-index-conj-entry sec-index k result)
-              (.complete fut (when-not (and (instance? EntryMeta result) (:no-cache? result))
-                               (if (nil? result) wrapped-nil result)))
+              (SecondaryIndexOps/secIndexConj sec-index k result)
+              (.complete fut (when-not (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
+                               (if (nil? result) (EntryMeta. nil false #{}) result)))
               result)
             (catch Throwable t
               (.completeExceptionally fut t)
               (throw t)))))))
-  (if-cached [this segment args]
+  (ifCached [this segment args]
     (if-some [v (.getIfPresent caffeine-cache (->key-fn segment args))]
       (b/unwrap-meta (.getNow ^CompletableFuture v b/absent))
       b/absent))
   (invalidate [this segment]
     (loop [^Iterator it (.. (.asMap caffeine-cache) keySet iterator)]
       (if (.hasNext it)
-        (do (when (= (:id segment) (.id ^CacheKey (.next it)))
+        (do (when (= (.getId segment) (.getId ^CacheKey (.next it)))
               (.remove it))
             (recur it))
         this)))
   (invalidate [this segment args] (.invalidate (.synchronous caffeine-cache) (->key-fn segment args)) this)
-  (invalidate-all [this] (.invalidateAll (.synchronous caffeine-cache)) this)
-  (invalidate-id [this id]
+  (invalidateAll [this] (.invalidateAll (.synchronous caffeine-cache)) this)
+  (invalidateId [this id]
+    (println sec-index id)
     (when-let [cache-keys (.remove sec-index id)]
       (.invalidateAll (.synchronous caffeine-cache) cache-keys))
     this)
-  (put-all [this segment args-to-vals]
+  (addEntries [this segment args-to-vals]
     (reduce-kv #(let [k (->key-fn segment %2)
-                      _ (sec-index-conj-entry sec-index k %3)]
+                      _ (SecondaryIndexOps/secIndexConj sec-index k %3)]
                   (.put caffeine-cache k (val->cval %3)))
                nil
                args-to-vals)
     this)
-  (as-map [this] (persistent!
-                   (reduce (fn [m [k v]] (assoc-imm-val! m k v b/unwrap-meta))
-                           (transient {})
-                           (.asMap caffeine-cache))))
-  (as-map [this segment]
+  (asMap [this] (persistent!
+                  (reduce (fn [m [k v]] (assoc-imm-val! m k v b/unwrap-meta))
+                          (transient {})
+                          (.asMap caffeine-cache))))
+  (asMap [this segment]
     (persistent!
       (reduce (fn [m [^CacheKey k v]]
-                (if (= (:id segment) (.id k)) (assoc-imm-val! m (.args k) v b/unwrap-meta)
+                (if (= (.getId segment) (.getId k)) (assoc-imm-val! m (.getArgs k) v b/unwrap-meta)
                   m))
               (transient {})
               (.asMap caffeine-cache)))))
@@ -169,8 +126,8 @@
     (->CaffeineCache conf
               (.buildAsync (conf->builder conf sec-index))
               (if-let [key-fn (:memento.core/key-fn conf)]
-                (fn [segment args] (->CacheKey (:id segment) (key-fn ((:key-fn segment) args))))
-                (fn [segment args] (->CacheKey (:id segment) ((:key-fn segment) args))))
+                (fn [^Segment segment args] (CacheKey. (.getId segment) (key-fn ((.getKeyFn segment) args))))
+                (fn [^Segment segment args] (CacheKey. (.getId segment) ((.getKeyFn segment) args))))
               (:memento.core/ret-fn conf)
               sec-index)))
 
@@ -181,22 +138,23 @@
 
    Returns com.github.benmanes.caffeine.cache.stats.CacheStats"
   [fn-or-cache]
-  (if (satisfies? b/Cache fn-or-cache)
+  (if (instance? ICache fn-or-cache)
     (when (instance? CaffeineCache fn-or-cache)
       (.stats (.synchronous ^AsyncCache (:caffeine-cache fn-or-cache))))
-    (when-let [c (mount/mount-point fn-or-cache)]
-      (stats (mount/mounted-cache c)))))
+    (stats (.mountedCache ^IMountPoint fn-or-cache))))
 
 (defn to-data [{:keys [caffeine-cache] :as _cache}]
   (persistent!
-    (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.id k) (.args k)] v #(when-not (= % wrapped-nil) %)))
+    (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.getId k) (.getArgs k)] v #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
+                                                                               nil %)))
             (transient {})
             (.asMap ^AsyncCache caffeine-cache))))
 
 (defn load-data [cache data-map]
   (reduce-kv
     (fn [^AsyncCache c k v]
-      (.put c (->CacheKey (first k) (second k)) (val->cval v))
+      (SecondaryIndexOps/secIndexConj (:sec-index cache) k v)
+      (.put c (CacheKey. (first k) (second k)) (val->cval v))
       c)
     (:caffeine-cache cache)
     data-map))

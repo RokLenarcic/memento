@@ -1,9 +1,13 @@
-{:paths ["src"]
+{:paths ["src" "target/classes"]
+ :deps/prep-lib {:alias :build
+                 :fn compile-java
+                 :ensure "target/classes"}
 
  :deps {com.github.ben-manes.caffeine/caffeine {:mvn/version "2.9.3"}}
 
  :aliases {:dev {:extra-paths ["test"]
-                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.236"}}
+                 :extra-deps {org.clojure/core.memoize {:mvn/version "1.0.257"}
+                              com.clojure-goes-fast/clj-memory-meter {:mvn/version "0.2.1"}}
                  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"
                             "-Djdk.attach.allowAttachSelf"]}
            :build {:deps {io.github.seancorfield/build-clj {:git/tag "v0.6.4" :git/sha "c21cfde"}}

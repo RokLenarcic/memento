@@ -5,15 +5,16 @@
             [memento.caffeine]
             [memento.multi :as multi]
             [memento.mount :as mount])
-  (:import (memento.base EntryMeta)))
+  (:import (memento.base EntryMeta ICache)
+           (memento.mount CachedFn IMountPoint)))
 
 (defn do-not-cache
   "Wrap a function result value in a wrapper that tells the Cache not to
   cache this particular value."
   [v]
   (if (instance? EntryMeta v)
-    (assoc v :no-cache? true)
-    (base/->EntryMeta v true #{})))
+    (do (.setNoCache ^EntryMeta v true) v)
+    (EntryMeta. v true #{})))
 
 (defn with-tag-id
   "Wrap a function result value in a wrapper that has the given additional
@@ -22,8 +23,8 @@
   This information is later used by memo-clear-tag!."
   [v tag id]
   (if (instance? EntryMeta v)
-    (update v :tag-idents conj [tag id])
-    (base/->EntryMeta v false #{[tag id]})))
+    (do (.setTagIdents ^EntryMeta v (conj (.getTagIdents ^EntryMeta v) [tag id])) v)
+    (EntryMeta. v false #{[tag id]})))
 
 (defn create
   "Create a cache.
@@ -47,7 +48,7 @@
    - memento.core/tags
    - memento.core/seed"
   [fn-or-var mount-conf cache]
-  (when-not (satisfies? base/Cache cache)
+  (when-not (instance? ICache cache)
     (throw (IllegalArgumentException. "Argument should satisfy memento.base/Cache")))
   (mount/bind fn-or-var mount-conf cache))
 
@@ -91,16 +92,16 @@
 
 (defn memoized?
   "Returns true if function is memoized."
-  [f] (boolean (mount/mount-point f)))
+  [f] (instance? CachedFn f))
 
 (defn memo-unwrap
   "Takes a function and returns an uncached function."
-  [f] (if-let [m (mount/mount-point f)] (mount/original-function m) f))
+  [f] (if (instance? CachedFn f) (.getOriginalFn ^CachedFn f) f))
 
 (defn memo-clear-cache!
   "Invalidate all entries in Cache. Returns cache."
   [cache]
-  (when-not (satisfies? base/Cache cache)
+  (when-not (instance? ICache cache)
     (throw (IllegalArgumentException. "Argument should satisfy memento.base/Cache")))
   (base/invalidate-all cache))
 
@@ -108,28 +109,29 @@
   "Invalidate one entry (f with arglist) on memoized function f,
    or invalidate all entries for memoized function. Returns f."
   ([f]
-   (do (some-> (mount/mount-point f) mount/invalidate-all)
-       f))
+   (when-let [^IMountPoint mp (mount/mount-point f)] (.invalidateAll mp))
+   f)
   ([f & fargs]
-   (do (some-> (mount/mount-point f) (mount/invalidate fargs))
-       f)))
+   (when-let [^IMountPoint mp (mount/mount-point f)] (.invalidate mp fargs))
+   f))
 
 (defn memo-add!
   "Add map's entries to the cache. The keys are argument-lists.
 
   Returns f."
   [f m]
-  (do (some-> (mount/mount-point f) (mount/put-all m)) f))
+  (when-let [^IMountPoint mp (mount/mount-point f)] (.addEntries mp m))
+  f)
 
 (defn as-map
   "Return a map representation of the memoized entries on this function."
   [f]
-  (some-> (mount/mount-point f) mount/as-map))
+  (when-let [^IMountPoint mp (mount/mount-point f)] (.asMap mp)))
 
 (defn tags
   "Return tags of the memoized function."
   [f]
-  (some-> (mount/mount-point f) mount/get-tags))
+  (when-let [^IMountPoint mp (mount/mount-point f)] (.getTags mp)))
 
 (defn mounts-by-tag
   "Returns a sequence of MountPoint instances used by memoized functions which are tagged by this tag."
@@ -140,10 +142,10 @@
   "Fire an event payload to the single cached function or all tagged functions, if tag
   is provided."
   [f-or-tag evt]
-  (if-let [f (mount/mount-point f-or-tag)]
-    (mount/handle-event f evt)
+  (if (instance? IMountPoint f-or-tag)
+    (.handleEvent ^IMountPoint f-or-tag evt)
     (->> (mounts-by-tag f-or-tag)
-         (eduction (map #(mount/handle-event % evt)))
+         (eduction (map #(.handleEvent ^IMountPoint % evt)))
          dorun)))
 
 (defn memo-clear-tag!
@@ -263,7 +265,8 @@
          f (first cache-call)
          _ (assert (symbol? f))]
      `(if-let [mnt# (mount/mount-point ~(first cache-call))]
-        (let [cached# (mount/if-cached mnt# '~(next cache-call))]
+        (let [mnt# (if (instance? CachedFn mnt#) (.getMp mnt#) mnt#)
+              cached# (.ifCached mnt# '~(next cache-call))]
           (if (= cached# base/absent)
             ~else
             (let [~form cached#] ~then)))

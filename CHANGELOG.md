@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.1.42
+- big internal changes now uses Java objects for most things for smaller memory profile and smaller callstack
+- significant improvements to callstack size for cached call
+- **This is breaking changes for any implementation, shouldn't affect users**
+- Fixes issue where namespace scan would stack caches on the same function over and over if called multiple times
+
+Here is an example of previous callstack of recursively cached call (without ret-fn):
+```clojure
+	at myns$myfn.invoke(myns.clj:12)
+	at clojure.lang.AFn.applyToHelper(AFn.java:160)
+	at clojure.lang.AFn.applyTo(AFn.java:144)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at memento.caffeine.CaffeineCache$fn__2536.invoke(caffeine.clj:122)
+	at memento.caffeine.CaffeineCache.cached(caffeine.clj:121)
+	at memento.mount.UntaggedMountPoint.cached(mount.clj:50)
+	at memento.mount$bind$fn__2432.doInvoke(mount.clj:119)
+	at clojure.lang.RestFn.applyTo(RestFn.java:137)
+	at clojure.lang.AFunction$1.doInvoke(AFunction.java:31)
+	at clojure.lang.RestFn.invoke(RestFn.java:436)
+	at myns$myfn.invokeStatic(myns.clj:17)
+	at myns$myfn.invoke(myns.clj:12)
+```
+
+And callstack after:
+```clojure
+	at myns$myfn.invoke(myns.clj:12)
+	at clojure.lang.AFn.applyToHelper(AFn.java:160)
+	at memento.caffeine.CaffeineCache$fn__2052.invoke(caffeine.clj:120)
+	at memento.caffeine.CaffeineCache.cached(caffeine.clj:119)
+	at memento.mount.CachedFn.invoke(CachedFn.java:110)
+	at myns$myfn.invokeStatic(myns.clj:17)
+	at myns$myfn.invoke(myns.clj:12)
+```
+
+From 11 stack frames to 4.
+
 ## 1.0.37
 - remove Guava and replace with Caffeine
 - rewrite the readme

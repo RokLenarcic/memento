@@ -1,10 +1,9 @@
 (ns memento.core-test
   (:require [clojure.test :refer :all]
             [memento.core :as m :refer :all]
-            [memento.config :as mc]
-            [memento.mount :as mount]
-            [memento.base :as base])
-  (:import (memento.base Cache)))
+            [memento.config :as mc])
+  (:import (memento.base EntryMeta ICache)
+           (memento.mount IMountPoint)))
 
 (def inf {mc/type mc/caffeine})
 (defn size< [max-size]
@@ -112,11 +111,10 @@
 (deftest test-memoization-utils
   (let [CACHE_IDENTITY (:memento.mount/mount (meta id))]
     (testing "that the stored cache is not null"
-      (is (not= nil CACHE_IDENTITY))
-      (is (satisfies? mount/MountPoint CACHE_IDENTITY)))
+      (is (instance? IMountPoint id)))
     (testing "that a populated function looks correct at its inception"
       (is (memoized? id))
-      (is (instance? Cache (active-cache id)))
+      (is (instance? ICache (active-cache id)))
       (is (as-map id))
       (is (empty? (as-map id))))
     (testing "that a populated function looks correct after some interactions"
@@ -274,9 +272,9 @@
 
 (deftest tagged-eviction-test
   (testing "adding tag ID info"
-    (is (= (base/->EntryMeta 1 false #{[:person 55]})
+    (is (= (EntryMeta. 1 false #{[:person 55]})
            (-> 1 (with-tag-id :person 55))))
-    (is (= (base/->EntryMeta 1 true #{[:person 55] [:account 6]})
+    (is (= (EntryMeta. 1 true #{[:person 55] [:account 6]})
            (-> 1 (with-tag-id :person 55) (with-tag-id :account 6) do-not-cache))))
   (testing "tagged eviction"
     (let [f (memo (fn [x] (with-tag-id x :tag x)) :tag inf)]
