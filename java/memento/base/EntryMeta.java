@@ -51,4 +51,13 @@ public class EntryMeta {
     public int hashCode() {
         return Objects.hash(v, noCache, tagIdents);
     }
+
+    @Override
+    public String toString() {
+        return "EntryMeta{" +
+                "v=" + v +
+                ", noCache=" + noCache +
+                ", tagIdents=" + tagIdents +
+                '}';
+    }
 }

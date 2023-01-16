@@ -55,4 +55,13 @@ public class Segment {
     public int hashCode() {
         return Objects.hash(f, keyFn, id);
     }
+
+    @Override
+    public String toString() {
+        return "Segment{" +
+                "f=" + f +
+                ", keyFn=" + keyFn +
+                ", id=" + id +
+                '}';
+    }
 }

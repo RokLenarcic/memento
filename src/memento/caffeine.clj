@@ -98,7 +98,6 @@
   (invalidate [this segment args] (.invalidate (.synchronous caffeine-cache) (->key-fn segment args)) this)
   (invalidateAll [this] (.invalidateAll (.synchronous caffeine-cache)) this)
   (invalidateId [this id]
-    (println sec-index id)
     (when-let [cache-keys (.remove sec-index id)]
       (.invalidateAll (.synchronous caffeine-cache) cache-keys))
     this)

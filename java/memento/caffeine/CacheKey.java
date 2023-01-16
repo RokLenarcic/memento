@@ -31,4 +31,12 @@ public class CacheKey {
     public int hashCode() {
         return Objects.hash(id, args);
     }
+
+    @Override
+    public String toString() {
+        return "CacheKey{" +
+                "id=" + id +
+                ", args=" + args +
+                '}';
+    }
 }

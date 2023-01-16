@@ -235,4 +235,13 @@ public class CachedFn extends AFunction implements IMountPoint {
         return originalFn;
     }
 
+    @Override
+    public String toString() {
+        return "CachedFn{" +
+                "originalFn=" + originalFn +
+                ", segment=" + segment +
+                ", mp=" + mp +
+                ", meta=" + meta +
+                '}';
+    }
 }
