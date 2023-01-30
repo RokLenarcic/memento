@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.44
+
+- fix bug which would have the cache return nil when concurrently accessing a value being calculated that ends being uncacheable
+
 ## 1.1.42
 - big internal changes now uses Java objects for most things for smaller memory profile and smaller callstack
 - significant improvements to callstack size for cached call

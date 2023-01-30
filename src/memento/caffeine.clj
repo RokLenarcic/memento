@@ -78,8 +78,9 @@
           (try
             (let [result (AFn/applyToHelper f args)]
               (SecondaryIndexOps/secIndexConj sec-index k result)
-              (.complete fut (when-not (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
-                               (if (nil? result) (EntryMeta. nil false #{}) result)))
+              (when (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
+                (.remove (.asMap caffeine-cache) k))
+              (.complete fut (if (nil? result) (EntryMeta. nil false #{}) result))
               result)
             (catch Throwable t
               (.completeExceptionally fut t)
