@@ -3,6 +3,7 @@ package memento.caffeine;
 import clojure.lang.IFn;
 import clojure.lang.ISeq;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import memento.base.CacheKey;
 import memento.base.EntryMeta;
 
 import java.util.HashSet;

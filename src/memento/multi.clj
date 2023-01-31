@@ -2,7 +2,7 @@
   {:author "Rok Lenarčič"}
   (:require [memento.base :as b])
   (:import (memento.base ICache)
-           (memento.multi ConsultingCache DaisyChainCache TieredCache)))
+           (memento.multi ConsultingCache DaisyChainCache MultiCache TieredCache)))
 
 (comment
   "A daisy chained cache.
@@ -39,3 +39,9 @@
   (let [^ICache cache (b/base-create-cache (::cache conf))
         ^ICache upstream (b/base-create-cache (::upstream conf))]
     (ConsultingCache. cache upstream conf b/absent)))
+
+(defn delegate [^MultiCache multi-cache]
+  (.getDelegate multi-cache))
+
+(defn upstream [^MultiCache multi-cache]
+  (.getUpstream multi-cache))

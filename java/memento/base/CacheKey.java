@@ -1,4 +1,4 @@
-package memento.caffeine;
+package memento.base;
 
 import java.util.Objects;
 

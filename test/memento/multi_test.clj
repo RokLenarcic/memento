@@ -3,7 +3,7 @@
             [memento.base :as b]
             [memento.config :as mc]
             [clojure.test :refer :all])
-  (:import (memento.caffeine CacheKey)))
+  (:import (memento.base CacheKey)))
 
 (def inf-cache {mc/type mc/caffeine})
 

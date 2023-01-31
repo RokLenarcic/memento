@@ -5,7 +5,7 @@
             [memento.config :as mc]
             [memento.caffeine :refer :all]
             [memento.caffeine.config :as mcc])
-  (:import (memento.caffeine CacheKey)))
+  (:import (memento.base CacheKey)))
 
 #_(deftest cache-creation
   (testing "Creates a cache builder"

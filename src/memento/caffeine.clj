@@ -5,9 +5,9 @@
   (:import (clojure.lang AFn)
            (java.util Iterator)
            (java.util.concurrent ConcurrentHashMap CompletableFuture ExecutionException)
-           (memento.base EntryMeta ICache Segment)
+           (memento.base CacheKey EntryMeta ICache Segment)
            (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker AsyncCache)
-           (memento.caffeine CacheKey SecondaryIndexOps)
+           (memento.caffeine SecondaryIndexOps)
            (memento.mount IMountPoint)))
 
 (defn conf->sec-index

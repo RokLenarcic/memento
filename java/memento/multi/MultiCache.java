@@ -72,4 +72,12 @@ public abstract class MultiCache implements ICache {
     public IPersistentMap asMap(Segment segment) {
         return cache.asMap(segment);
     }
+
+    public ICache getDelegate() {
+        return cache;
+    }
+
+    public ICache getUpstream() {
+        return upstream;
+    }
 }

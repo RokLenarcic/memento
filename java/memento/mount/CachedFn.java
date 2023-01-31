@@ -244,4 +244,8 @@ public class CachedFn extends AFunction implements IMountPoint {
                 ", meta=" + meta +
                 '}';
     }
+
+    public Segment getSegment() {
+        return segment;
+    }
 }
