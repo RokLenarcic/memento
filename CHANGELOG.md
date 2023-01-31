@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.45
+
+- add getters/setters to MultiCache for the delegate/upstream cache, also add clojure functions to access these properties to `memento.multi` namespace
+- moved CacheKey to memento.base Java package
+
 ## 1.1.44
 
 - fix bug which would have the cache return nil when concurrently accessing a value being calculated that ends being uncacheable
