@@ -322,4 +322,4 @@ Version 0.9.0 introduced many breaking changes.
 
 Copyright © 2020-2021 Rok Lenarčič
 
-Licensed under the term of the Eclipse Public License - v 2.0, see LICENSE.
+Licensed under the term of the MIT License, see LICENSE.
