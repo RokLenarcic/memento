@@ -143,18 +143,20 @@
       (.stats (.synchronous ^AsyncCache (:caffeine-cache fn-or-cache))))
     (stats (.mountedCache ^IMountPoint fn-or-cache))))
 
-(defn to-data [{:keys [caffeine-cache] :as _cache}]
-  (persistent!
-    (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.getId k) (.getArgs k)] v #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
-                                                                               nil %)))
-            (transient {})
-            (.asMap ^AsyncCache caffeine-cache))))
+(defn to-data [cache]
+  (when-let [caffeine (:caffeine-cache cache)]
+    (persistent!
+      (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.getId k) (.getArgs k)] v #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
+                                                                                       nil %)))
+              (transient {})
+              (.asMap ^AsyncCache caffeine)))))
 
 (defn load-data [cache data-map]
-  (reduce-kv
-    (fn [^AsyncCache c k v]
-      (SecondaryIndexOps/secIndexConj (:sec-index cache) k v)
-      (.put c (CacheKey. (first k) (second k)) (val->cval v))
-      c)
-    (:caffeine-cache cache)
-    data-map))
+  (when-let [caffeine (:caffeine-cache cache)]
+    (reduce-kv
+      (fn [^AsyncCache c k v]
+        (SecondaryIndexOps/secIndexConj (:sec-index cache) k v)
+        (.put c (CacheKey. (first k) (second k)) (val->cval v))
+        c)
+      caffeine
+      data-map)))

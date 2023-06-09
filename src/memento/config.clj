@@ -11,7 +11,7 @@
   (:refer-clojure :exclude [type])
   (:import (java.util.concurrent TimeUnit)))
 
-(def enabled?
+(def ^:redef enabled?
   "If false, then all cache attach operations create a cache that does no
   caching (changing this value doesn't affect caches already created).
 
