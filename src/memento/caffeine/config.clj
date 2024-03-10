@@ -65,14 +65,17 @@
   This allows entries to be garbage-collected if there are no other (strong or soft) references to the values."
   :memento.caffeine/weak-values)
 
-#_(def soft-values
+(def soft-values
   "Cache setting, corresponds to .softValues on CacheBuilder.
 
   Boolean flag, enabling storing values using soft references.
 
   Softly referenced objects are garbage-collected in a globally least-recently-used manner,
   in response to memory demand. Because of the performance implications of using soft references,
-  we generally recommend using the more predictable maximum cache size instead."
+  we generally recommend using the more predictable maximum cache size instead.
+
+  In Memento's case, SoftReference points the CompletableFuture containing the value, so it's always
+  softly reachable."
   :memento.caffeine/soft-values)
 
 (def stats

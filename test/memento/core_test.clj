@@ -37,9 +37,9 @@
           f (factory
               (fn []
                 (swap! access-count inc)
-                (throw (Exception.))))]
-      (is (thrown? Exception (f)))
-      (is (thrown? Exception (f)))
+                (throw (IllegalArgumentException.))))]
+      (is (thrown? IllegalArgumentException (f)))
+      (is (thrown? IllegalArgumentException (f)))
       (is (= 2 @access-count))))
   (testing "That the memo function does not have a race condition"
     (let [access-count (atom 0)
@@ -329,3 +329,6 @@
                         (dec x)))]
       (is (= 4 (fn2 5)))
       (is (= 6 (fn1 5))))))
+
+(deftest recursive-test
+  (testing "recursive loads"))

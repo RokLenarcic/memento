@@ -4,9 +4,9 @@
   (:require [memento.base :as b])
   (:import (clojure.lang AFn)
            (java.util Iterator)
-           (java.util.concurrent ConcurrentHashMap CompletableFuture ExecutionException)
+           (java.util.concurrent CompletionException ConcurrentHashMap CompletableFuture)
            (memento.base CacheKey EntryMeta ICache Segment)
-           (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker AsyncCache)
+           (com.github.benmanes.caffeine.cache Cache Caffeine Weigher Ticker)
            (memento.caffeine SecondaryIndexOps)
            (memento.mount IMountPoint)))
 
@@ -38,7 +38,7 @@
       weak-keys (.weakKeys)
       ;; These are disallowed in Async caches
       ;weak-values (.weakValues)
-      ;soft-values (.softValues)
+      soft-values (.softValues)
       ttl (.expireAfterWrite (b/parse-time-scalar ttl) (b/parse-time-unit ttl))
       fade (.expireAfterAccess (b/parse-time-scalar fade) (b/parse-time-unit fade))
       ;; not currently used because we don't build a loading cache
@@ -47,10 +47,9 @@
       stats (.recordStats))))
 
 (defn val->cval
-  "Converts val into cache friendly version. The problem is that AsyncCache has 'smart' feature where
-  it will delete entries where CompletableFuture has nil value or exception value."
+  "Converts val into cache friendly version."
   [v]
-  (CompletableFuture/completedFuture (if (nil? v) (EntryMeta. nil false #{}) v)))
+  (CompletableFuture/completedFuture v))
 
 (defn assoc-imm-val!
   "If cached value is a completable future with immediately available value, assoc it to transient."
@@ -62,7 +61,7 @@
 
 ;;;;;;;;;;;;;;
 ; ->key-fn take 2 args f and key
-(defrecord CaffeineCache [conf ^AsyncCache caffeine-cache ->key-fn ret-fn ^ConcurrentHashMap sec-index]
+(defrecord CaffeineCache [conf ^Cache caffeine-cache ->key-fn ret-fn ^ConcurrentHashMap sec-index]
   ICache
   (conf [this] conf)
   (cached [this segment args]
@@ -73,16 +72,17 @@
         (if-some [^CompletableFuture prev-fut (-> caffeine-cache .asMap (.putIfAbsent k fut))]
           (try
             (.join prev-fut)
-            (catch ExecutionException e
+            (catch CompletionException e
               (throw (.getCause e))))
           (try
             (let [result (AFn/applyToHelper f args)]
               (SecondaryIndexOps/secIndexConj sec-index k result)
               (when (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
                 (.remove (.asMap caffeine-cache) k))
-              (.complete fut (if (nil? result) (EntryMeta. nil false #{}) result))
+              (.complete fut result)
               result)
             (catch Throwable t
+              (.remove (.asMap caffeine-cache) k)
               (.completeExceptionally fut t)
               (throw t)))))))
   (ifCached [this segment args]
@@ -96,11 +96,11 @@
               (.remove it))
             (recur it))
         this)))
-  (invalidate [this segment args] (.invalidate (.synchronous caffeine-cache) (->key-fn segment args)) this)
-  (invalidateAll [this] (.invalidateAll (.synchronous caffeine-cache)) this)
+  (invalidate [this segment args] (.invalidate caffeine-cache (->key-fn segment args)) this)
+  (invalidateAll [this] (.invalidateAll caffeine-cache) this)
   (invalidateId [this id]
     (when-let [cache-keys (.remove sec-index id)]
-      (.invalidateAll (.synchronous caffeine-cache) cache-keys))
+      (.invalidateAll caffeine-cache cache-keys))
     this)
   (addEntries [this segment args-to-vals]
     (reduce-kv #(let [k (->key-fn segment %2)
@@ -124,7 +124,7 @@
 (defmethod b/new-cache :memento.core/caffeine [conf]
   (let [sec-index (conf->sec-index conf)]
     (->CaffeineCache conf
-              (.buildAsync (conf->builder conf sec-index))
+              (.build (conf->builder conf sec-index))
               (if-let [key-fn (:memento.core/key-fn conf)]
                 (fn [^Segment segment args] (CacheKey. (.getId segment) (key-fn ((.getKeyFn segment) args))))
                 (fn [^Segment segment args] (CacheKey. (.getId segment) ((.getKeyFn segment) args))))
@@ -140,7 +140,7 @@
   [fn-or-cache]
   (if (instance? ICache fn-or-cache)
     (when (instance? CaffeineCache fn-or-cache)
-      (.stats (.synchronous ^AsyncCache (:caffeine-cache fn-or-cache))))
+      (.stats ^Cache (:caffeine-cache fn-or-cache)))
     (stats (.mountedCache ^IMountPoint fn-or-cache))))
 
 (defn to-data [cache]
@@ -149,12 +149,12 @@
       (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.getId k) (.getArgs k)] v #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
                                                                                        nil %)))
               (transient {})
-              (.asMap ^AsyncCache caffeine)))))
+              (.asMap ^Cache caffeine)))))
 
 (defn load-data [cache data-map]
   (when-let [caffeine (:caffeine-cache cache)]
     (reduce-kv
-      (fn [^AsyncCache c k v]
+      (fn [^Cache c k v]
         (SecondaryIndexOps/secIndexConj (:sec-index cache) k v)
         (.put c (CacheKey. (first k) (second k)) (val->cval v))
         c)

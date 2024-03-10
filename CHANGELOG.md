@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.50
+
+- added option of using SoftReferences in caffeine cache
+- fixed reload-guards? var not being redefinable
+
 ## 1.1.45
 
 - add getters/setters to MultiCache for the delegate/upstream cache, also add clojure functions to access these properties to `memento.multi` namespace

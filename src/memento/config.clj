@@ -18,7 +18,7 @@
   Initially has the value of java property `memento.enabled` (defaulting to true)."
   (Boolean/valueOf (System/getProperty "memento.enabled" "true")))
 
-(def reload-guards?
+(def ^:redef reload-guards?
   "If false, then all cache attach operations create a cache that does no
   caching (changing this value doesn't affect caches already created).
 
