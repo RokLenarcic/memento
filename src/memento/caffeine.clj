@@ -4,10 +4,10 @@
   (:require [memento.base :as b])
   (:import (clojure.lang AFn)
            (java.util Iterator)
-           (java.util.concurrent CompletionException ConcurrentHashMap CompletableFuture)
+           (java.util.concurrent ConcurrentHashMap)
            (memento.base CacheKey EntryMeta ICache Segment)
            (com.github.benmanes.caffeine.cache Cache Caffeine Weigher Ticker)
-           (memento.caffeine SecondaryIndexOps)
+           (memento.caffeine SecondaryIndexOps Joinable SpecialPromise)
            (memento.mount IMountPoint)))
 
 (defn conf->sec-index
@@ -49,11 +49,11 @@
 (defn val->cval
   "Converts val into cache friendly version."
   [v]
-  (CompletableFuture/completedFuture v))
+  (SpecialPromise/completed v))
 
 (defn assoc-imm-val!
   "If cached value is a completable future with immediately available value, assoc it to transient."
-  [transient-m k ^CompletableFuture v xf]
+  [transient-m k ^Joinable v xf]
   (let [cv (.getNow v b/absent)]
     (if (= cv b/absent)
       transient-m
@@ -68,26 +68,23 @@
     (b/unwrap-meta
       (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (.getF segment) args))) (.getF segment))
             k (->key-fn segment args)
-            fut (CompletableFuture.)]
-        (if-some [^CompletableFuture prev-fut (-> caffeine-cache .asMap (.putIfAbsent k fut))]
-          (try
-            (.join prev-fut)
-            (catch CompletionException e
-              (throw (.getCause e))))
+            p (SpecialPromise. k)]
+        (if-some [^Joinable prev-p (-> caffeine-cache .asMap (.putIfAbsent k p))]
+          (.join prev-p)
           (try
             (let [result (AFn/applyToHelper f args)]
               (SecondaryIndexOps/secIndexConj sec-index k result)
               (when (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
                 (.remove (.asMap caffeine-cache) k))
-              (.complete fut result)
+              (.deliver p result)
               result)
             (catch Throwable t
               (.remove (.asMap caffeine-cache) k)
-              (.completeExceptionally fut t)
+              (.deliverException p t)
               (throw t)))))))
   (ifCached [this segment args]
     (if-some [v (.getIfPresent caffeine-cache (->key-fn segment args))]
-      (b/unwrap-meta (.getNow ^CompletableFuture v b/absent))
+      (b/unwrap-meta (.getNow ^Joinable v b/absent))
       b/absent))
   (invalidate [this segment]
     (loop [^Iterator it (.. (.asMap caffeine-cache) keySet iterator)]

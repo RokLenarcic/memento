@@ -330,5 +330,15 @@
       (is (= 4 (fn2 5)))
       (is (= 6 (fn1 5))))))
 
+(defn fib [x] (if (<= x 1) 1 (+ (fib (- x 2)) (fib (dec x)))))
+
+(memo #'fib inf)
+
+(defn recursive [x] (recursive x))
+
+(memo #'recursive inf)
+
 (deftest recursive-test
-  (testing "recursive loads"))
+  (testing "recursive loads"
+    (is (= 20365011074 (fib 50)))
+    (is (thrown? StackOverflowError (recursive 1)))))
