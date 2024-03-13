@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.53
+
+- improve memory use
+
 ## 1.1.52
 
 - fixes a bug with concurrent loads causing some of them to return nil as a result

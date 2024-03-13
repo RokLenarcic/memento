@@ -70,12 +70,14 @@ public class SpecialPromise implements Joinable {
     public void deliver(Object r) {
         result = r == null ? NIL : r;
         context = null;
+        thread = null;
         d.countDown();
     }
 
     public void deliverException(Throwable t) {
         result = new AltResult(t);
         context = null;
+        thread = null;
         d.countDown();
     }
 
