@@ -4,7 +4,7 @@
   {:author "Rok Lenarčič"}
   (:require [memento.base :as base]
             [memento.config :as config])
-  (:import (clojure.lang AFn)
+  (:import (clojure.lang AFn ISeq)
            (memento.base ICache Segment)
            (memento.mount CachedFn IMountPoint)))
 
@@ -72,7 +72,7 @@
   [f cache mount-conf]
   (let [key-fn (or (config/key-fn mount-conf)
                    (when-let [base (config/key-fn* mount-conf)]
-                     (fn [args] (AFn/applyToHelper base args)))
+                     (fn [args] (AFn/applyToHelper base (if (instance? ISeq args) args (seq args)))))
                    identity)
         evt-fn (config/evt-fn mount-conf (fn [_ _] nil))
         f* (if-let [ret-fn (config/ret-fn mount-conf)]

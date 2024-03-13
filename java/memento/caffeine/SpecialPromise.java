@@ -20,9 +20,13 @@ import java.util.concurrent.CountDownLatch;
 public class SpecialPromise implements Joinable {
 
     private static final AltResult NIL = new AltResult(null);
-    private Thread thread;
     private final CountDownLatch d = new CountDownLatch(1);
+    // these 2 don't need to be thread-safe, because they are only used to check
+    // if current thread is one that created and started the load on the promise
+    // so even with non-volatile, check is only true if thread is same as current thread
+    // so no memory barrier needed
     private CacheKey context;
+    private Thread thread;
     private volatile Object result;
 
     public static Joinable completed(Object v) {

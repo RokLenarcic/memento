@@ -352,3 +352,8 @@
                     inf)
           v (doall (repeatedly 5 #(future (f 1))))]
       (is (= [1 1 1 1 1] (mapv deref v))))))
+
+(deftest vectors-key-fn*
+  (testing "vectors don't throw exception when used with key-fn*"
+    (let [c (m/memo identity (assoc inf mc/key-fn* identity))]
+      (is (some? (m/memo-add! c {[1] 2}))))))

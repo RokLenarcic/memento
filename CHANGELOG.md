@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.54
+
+- Improve handling of Vectors when adding entries
+
 ## 1.1.53
 
 - improve memory use
