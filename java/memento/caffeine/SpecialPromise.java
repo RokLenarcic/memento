@@ -19,14 +19,40 @@ import java.util.concurrent.CountDownLatch;
  */
 public class SpecialPromise implements Joinable {
 
+    private static final AltResult NIL = new AltResult(null);
+    private Thread thread;
+    private final CountDownLatch d = new CountDownLatch(1);
+    private CacheKey context;
+    private volatile Object result;
+
+    public static Joinable completed(Object v) {
+        return new Joinable() {
+            @Override
+            public Object join() {
+                return v;
+            }
+
+            @Override
+            public Object getNow(Object valueIfAbsent) {
+                return v;
+            }
+        };
+    }
+
+    public void markLoadStart(CacheKey context) {
+        this.thread = Thread.currentThread();
+        this.context = context;
+    }
+
     @Override
     public Object join() throws Throwable {
         Object r;
         if ((r = result) == null) {
             if (Thread.currentThread() == thread) {
-                throw new StackOverflowError("Cache loader recurses on itself: " + context);
+                throw new StackOverflowError("Recursive load on key: " + context);
             } else {
                 d.await();
+                r = result;
             }
         }
         if (r instanceof AltResult) {
@@ -41,26 +67,6 @@ public class SpecialPromise implements Joinable {
         }
     }
 
-    public SpecialPromise(CacheKey context) {
-        this.context = context;
-    }
-
-    private static class AltResult {
-        Throwable value;
-
-        public AltResult(Throwable value) {
-            this.value = value;
-        }
-    }
-
-    private static final AltResult NIL = new AltResult(null);
-
-    private final Thread thread = Thread.currentThread();
-
-    private CacheKey context;
-
-    private volatile Object result;
-    private final CountDownLatch d = new CountDownLatch(1);
     public void deliver(Object r) {
         result = r == null ? NIL : r;
         context = null;
@@ -87,18 +93,12 @@ public class SpecialPromise implements Joinable {
         }
     }
 
-    public static Joinable completed(Object v) {
-        return new Joinable() {
-            @Override
-            public Object join() {
-                return v;
-            }
+    private static class AltResult {
+        Throwable value;
 
-            @Override
-            public Object getNow(Object valueIfAbsent) {
-                return v;
-            }
-        };
+        public AltResult(Throwable value) {
+            this.value = value;
+        }
     }
 
 }

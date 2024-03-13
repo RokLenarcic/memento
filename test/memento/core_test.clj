@@ -342,3 +342,13 @@
   (testing "recursive loads"
     (is (= 20365011074 (fib 50)))
     (is (thrown? StackOverflowError (recursive 1)))))
+
+(deftest concurrent-load
+  (testing "concurrent test"
+    (let [cnt (atom 0)
+          f (m/memo (fn [x] (println "x")
+                      (Thread/sleep 1000)
+                      (swap! cnt inc) x)
+                    inf)
+          v (doall (repeatedly 5 #(future (f 1))))]
+      (is (= [1 1 1 1 1] (mapv deref v))))))

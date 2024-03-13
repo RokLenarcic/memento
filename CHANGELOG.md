@@ -1,7 +1,12 @@
 # Changelog
 
+## 1.1.52
+
+- fixes a bug with concurrent loads causing some of them to return nil as a result
+
 ## 1.1.51
 
+- DO NOT USE
 - add check for cyclical loads to caffeine cache, e.g. cached function calling itself with same parameters, this now throws StackOverflowError, which is the error you'd get in this situation with uncached function
 - improved performance
 

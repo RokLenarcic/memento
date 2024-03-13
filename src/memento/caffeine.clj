@@ -68,10 +68,11 @@
     (b/unwrap-meta
       (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (.getF segment) args))) (.getF segment))
             k (->key-fn segment args)
-            p (SpecialPromise. k)]
+            p (SpecialPromise.)]
         (if-some [^Joinable prev-p (-> caffeine-cache .asMap (.putIfAbsent k p))]
           (.join prev-p)
           (try
+            (.markLoadStart p k)
             (let [result (AFn/applyToHelper f args)]
               (SecondaryIndexOps/secIndexConj sec-index k result)
               (when (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
