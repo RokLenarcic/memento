@@ -23,7 +23,7 @@ public class SecondaryIndexOps {
      * @param k        CacheKey of Cache entry being removed
      * @param v
      */
-    public static void secIndexDisj(ConcurrentHashMap<Object, Set<Object>> secIndex, Object k, Object v) {
+    public static void secIndexDisj(ConcurrentHashMap<Object, Set<CacheKey>> secIndex, CacheKey k, Object v) {
         if (v instanceof EntryMeta) {
             EntryMeta e = ((EntryMeta) v);
             ISeq s = e.getTagIdents().seq();
@@ -49,13 +49,13 @@ public class SecondaryIndexOps {
      * @param k
      * @param v
      */
-    public static void secIndexConj(ConcurrentHashMap<Object, Set<Object>> secIndex, Object k, Object v) {
+    public static void secIndexConj(ConcurrentHashMap<Object, Set<CacheKey>> secIndex, CacheKey k, Object v) {
         if (v instanceof EntryMeta) {
             EntryMeta e = ((EntryMeta) v);
             ISeq s = e.getTagIdents().seq();
             while (s != null) {
                 secIndex.compute(s.first(), (i, hashSet) -> {
-                    Set<Object> set = hashSet == null ? new HashSet<>() : hashSet;
+                    Set<CacheKey> set = hashSet == null ? new HashSet<>() : hashSet;
                     set.add(k);
                     return set;
                 });
@@ -64,13 +64,13 @@ public class SecondaryIndexOps {
         }
     }
 
-    public static RemovalListener<CacheKey, Object> listener(ConcurrentHashMap<Object, Set<Object>> secIndex) {
+    public static RemovalListener<CacheKey, Object> listener(ConcurrentHashMap<Object, Set<CacheKey>> secIndex) {
         return (k, v, removalCause) -> {
             secIndexDisj(secIndex, k, v);
         };
     }
 
-    public static RemovalListener<CacheKey, Object> listener(ConcurrentHashMap<Object, Set<Object>> secIndex, IFn removalListener) {
+    public static RemovalListener<CacheKey, Object> listener(ConcurrentHashMap<Object, Set<CacheKey>> secIndex, IFn removalListener) {
         return (k, v, removalCause) -> {
             secIndexDisj(secIndex, k, v);
             removalListener.invoke(k.getId(), k.getArgs(), v instanceof EntryMeta ? ((EntryMeta) v).getV() : v, removalCause);

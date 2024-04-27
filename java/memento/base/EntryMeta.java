@@ -1,10 +1,18 @@
 package memento.base;
 
+import clojure.lang.APersistentSet;
 import clojure.lang.IPersistentSet;
+import clojure.lang.PersistentHashSet;
 
 import java.util.Objects;
 
 public class EntryMeta {
+
+    public static final Object absent = new Object();
+
+    public static Object unwrap(Object o) {
+        return o instanceof EntryMeta ? ((EntryMeta)o).getV() : o;
+    }
     private Object v;
     private boolean noCache;
     private IPersistentSet tagIdents;
@@ -12,7 +20,7 @@ public class EntryMeta {
     public EntryMeta(Object v, boolean noCache, IPersistentSet tagIdents) {
         this.v = v;
         this.noCache = noCache;
-        this.tagIdents = tagIdents;
+        this.tagIdents = tagIdents == null ? PersistentHashSet.EMPTY : tagIdents;
     }
 
     public Object getV() {

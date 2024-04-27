@@ -32,14 +32,18 @@
 (deftest update-existing-test
   (is (= {:a 1 :b 2} (m/update-existing {:a 1 :b 1} [:b :c] inc))))
 
+(defn test-fn [x] nil)
+(def test-fn-saved test-fn)
+
 (deftest id-test
-  (are [expected-id fn-or-var conf]
-    (= expected-id (-> (m/bind fn-or-var conf b/no-cache) .getMp .segment .getId))
-    inc inc {}
-    inc inc :a
-    "#'clojure.core/inc" #'inc {}
-    :x #'inc {mc/id :x}
-    :x inc {mc/id :x}))
+  (let [x inc]
+    (are [expected-id fn-or-var conf]
+      (= expected-id (-> (m/bind fn-or-var conf b/no-cache) .getMp .segment .getId))
+      test-fn-saved test-fn {}
+      test-fn-saved test-fn :a
+      "#'memento.mount-test/test-fn" #'test-fn {}
+      :x #'test-fn {mc/id :x}
+      :x test-fn {mc/id :x})))
 
 (def a (atom 0))
 

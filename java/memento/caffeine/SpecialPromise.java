@@ -29,8 +29,12 @@ public class SpecialPromise implements Joinable {
     private Thread thread;
     private volatile Object result;
 
+    private volatile boolean invalid = false;
+
     public static Joinable completed(Object v) {
         return new Joinable() {
+            private volatile boolean invalid = false;
+
             @Override
             public Object join() {
                 return v;
@@ -39,6 +43,16 @@ public class SpecialPromise implements Joinable {
             @Override
             public Object getNow(Object valueIfAbsent) {
                 return v;
+            }
+
+            @Override
+            public void invalidate() {
+                invalid = true;
+            }
+
+            @Override
+            public boolean isInvalid() {
+                return invalid;
             }
         };
     }
@@ -97,6 +111,15 @@ public class SpecialPromise implements Joinable {
         } else {
             return r == null ? valueIfAbsent : r;
         }
+    }
+
+    @Override
+    public void invalidate() {
+        invalid = true;
+    }
+
+    public boolean isInvalid() {
+        return invalid;
     }
 
     private static class AltResult {

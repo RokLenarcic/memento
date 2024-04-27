@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.55
+
+- add predicate memento.core/none-cache? that checks if cache is of none type
+- new
+
 ## 1.1.54
 
 - Improve handling of Vectors when adding entries

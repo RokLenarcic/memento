@@ -7,11 +7,15 @@
   (:require [memento.config :as config])
   (:import (clojure.lang AFn)
            (java.util.concurrent TimeUnit)
-           (memento.base EntryMeta ICache)))
+           (memento.base EntryMeta ICache LockoutMap)))
 
-(def absent "Value that signals absent key." (Object.))
+(def absent "Value that signals absent key." EntryMeta/absent)
 
 (defn unwrap-meta [o] (if (instance? EntryMeta o) (.getV ^EntryMeta o) o))
+
+(def lockout-map "An LockoutMap. Implementation developers use this to do caching in a fashion that is aware
+                       of bulk invalidation. "
+  LockoutMap/INSTANCE)
 
 (def no-cache
   (reify ICache
@@ -21,7 +25,7 @@
     (invalidate [this segment] this)
     (invalidate [this segment args] this)
     (invalidateAll [this] this)
-    (invalidateId [this id] this)
+    (invalidateIds [this ids] this)
     (addEntries [this f args-to-vals] this)
     (asMap [this] {})
     (asMap [this segment] {})))
@@ -33,7 +37,7 @@
   ([^ICache icache segment args] (.invalidate icache segment args))
   ([^ICache icache segment] (.invalidate icache segment)))
 (defn invalidate-all [^ICache icache] (.invalidateAll icache))
-(defn invalidate-id [^ICache icache id] (.invalidateId icache id))
+(defn invalidate-ids [^ICache icache ids] (.invalidateIds icache ids))
 (defn put-all [^ICache icache f args-to-vals] (.addEntries icache f args-to-vals))
 (defn as-map
   ([^ICache icache] (.asMap icache))

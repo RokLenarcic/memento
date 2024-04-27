@@ -109,52 +109,54 @@ Found 2 outliers in 60 samples (3,3333 %)
 ```text
 (cc/bench (f-memento 1))
 
-Evaluation count : 1708957080 in 60 samples of 28482618 calls.
-             Execution time mean : 33,495114 ns
-    Execution time std-deviation : 1,526886 ns
-   Execution time lower quantile : 32,420293 ns ( 2,5%)
-   Execution time upper quantile : 35,210809 ns (97,5%)
-                   Overhead used : 1,997090 ns
+Evaluation count : 1665773940 in 60 samples of 27762899 calls.
+             Execution time mean : 34,272602 ns
+    Execution time std-deviation : 1,482470 ns
+   Execution time lower quantile : 33,454154 ns ( 2,5%)
+   Execution time upper quantile : 36,648990 ns (97,5%)
+                   Overhead used : 2,005368 ns
 
-Found 3 outliers in 60 samples (5,0000 %)
-	low-severe	 1 (1,6667 %)
+Found 6 outliers in 60 samples (10,0000 %)
+	low-severe	 4 (6,6667 %)
 	low-mild	 2 (3,3333 %)
- Variance from outliers : 31,9409 % Variance is moderately inflated by outliers
+ Variance from outliers : 30,2710 % Variance is moderately inflated by outliers
+
 ```
 
-#### 1M misses (219 ns per miss)
+#### 1M misses (213 ns per miss)
 
 ```text
 (cc/bench (let [f-memento (m/memo identity {::m/type ::m/caffeine})]
             (reduce #(f-memento %2) (range 1000000))))
 Evaluation count : 360 in 60 samples of 6 calls.
-             Execution time mean : 219,945619 ms
-    Execution time std-deviation : 42,439269 ms
-   Execution time lower quantile : 168,508054 ms ( 2,5%)
-   Execution time upper quantile : 294,514408 ms (97,5%)
-                   Overhead used : 1,997090 ns
-
-Found 1 outliers in 60 samples (1,6667 %)
-	low-severe	 1 (1,6667 %)
- Variance from outliers : 89,4334 % Variance is severely inflated by outliers
-=> nil
-```
-
-#### 1M misses for size 100 LRU cache (202 ns per miss)
-
-```text
-(cc/bench (let [f-memento (m/memo {::m/size< 100 ::m/type ::m/caffeine} identity)]
-            (reduce #(f-memento %2) (range 1000000))))
-Evaluation count : 660 in 60 samples of 11 calls.
-             Execution time mean : 100,564314 ms
-    Execution time std-deviation : 5,061328 ms
-   Execution time lower quantile : 93,667858 ms ( 2,5%)
-   Execution time upper quantile : 108,149131 ms (97,5%)
-                   Overhead used : 1,997090 ns
+             Execution time mean : 213,842661 ms
+    Execution time std-deviation : 41,455030 ms
+   Execution time lower quantile : 142,937165 ms ( 2,5%)
+   Execution time upper quantile : 316,129642 ms (97,5%)
+                   Overhead used : 2,005368 ns
 
 Found 2 outliers in 60 samples (3,3333 %)
-	low-severe	 1 (1,6667 %)
+	low-severe	 2 (3,3333 %)
+ Variance from outliers : 89,4387 % Variance is severely inflated by outliers
+
+```
+
+#### 1M misses for size 100 LRU cache (519 ns per miss)
+
+```text
+(cc/bench (let [f-memento (m/memo identity {::m/size< 100 ::m/type ::m/caffeine})]
+            (reduce #(f-memento %2) (range 1000000))))
+Evaluation count : 120 in 60 samples of 2 calls.
+             Execution time mean : 519,001949 ms
+    Execution time std-deviation : 22,003978 ms
+   Execution time lower quantile : 477,177477 ms ( 2,5%)
+   Execution time upper quantile : 549,082399 ms (97,5%)
+                   Overhead used : 2,005368 ns
+
+Found 5 outliers in 60 samples (8,3333 %)
+	low-severe	 4 (6,6667 %)
 	low-mild	 1 (1,6667 %)
- Variance from outliers : 36,8226 % Variance is moderately inflated by outliers
+ Variance from outliers : 28,6961 % Variance is moderately inflated by outliers
+
 
 ```

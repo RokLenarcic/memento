@@ -60,11 +60,11 @@ public interface ICache {
     ICache invalidateAll();
 
     /**
-     * Invalidate entries with this secondary ID, returns Cache
+     * Invalidate entries with these secondary IDs, returns Cache. Each ID is a pair of tag and object
      * @param id
      * @return
      */
-    ICache invalidateId(Object id);
+    ICache invalidateIds(Iterable<Object> id);
 
     /**
      * Add entries as for a function

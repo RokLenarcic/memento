@@ -5,7 +5,9 @@
             [memento.caffeine]
             [memento.multi :as multi]
             [memento.mount :as mount])
-  (:import (memento.base EntryMeta ICache)
+  (:import (java.util ArrayList HashSet IdentityHashMap)
+           (java.util.function BiFunction)
+           (memento.base EntryMeta ICache LockoutMap)
            (memento.mount CachedFn IMountPoint)))
 
 (defn do-not-cache
@@ -105,6 +107,11 @@
     (throw (IllegalArgumentException. "Argument should satisfy memento.base/Cache")))
   (base/invalidate-all cache))
 
+(defn none-cache?
+  "Returns true if this cache is one that does no caching."
+  [cache]
+  (= cache base/no-cache))
+
 (defn memo-clear!
   "Invalidate one entry (f with arglist) on memoized function f,
    or invalidate all entries for memoized function. Returns f."
@@ -138,6 +145,13 @@
   [tag]
   (get @mount/tags tag []))
 
+(defn caches-by-tag
+  "Returns a collection of caches that are mounted with a tag"
+  [tag]
+  (let [m (IdentityHashMap.)]
+    (run! #(.put m (mount/mounted-cache %) nil) (mounts-by-tag tag))
+    (.keySet m)))
+
 (defn fire-event!
   "Fire an event payload to the single cached function or all tagged functions, if tag
   is provided."
@@ -148,22 +162,36 @@
          (eduction (map #(.handleEvent ^IMountPoint % evt)))
          dorun)))
 
+(defn memo-clear-tags!
+  "Invalidate all entries that have the specified tag + id metadata. ID can be anything.
+
+  Expects a collection of [tag id] pairs."
+  [& tag+ids]
+  (let [cache->ids (IdentityHashMap.)
+        _ (doseq [[tag tag+ids] (group-by first tag+ids)
+                  cache (caches-by-tag tag)]
+            (.compute
+              cache->ids
+              cache
+              (reify BiFunction
+                (apply [this k v] (into (or v []) tag+ids)))))
+        latch (.startLockout base/lockout-map tag+ids)]
+    (try
+      (run! (fn [e] (base/invalidate-ids (key e) (val e))) cache->ids)
+      (finally
+        (.endInvalidation base/lockout-map tag+ids latch)))))
+
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."
   [tag id]
-  (let [secondary-key [tag id]]
-    (->> (mounts-by-tag tag)
-         (eduction (map mount/mounted-cache)
-                   (distinct)
-                   (map #(base/invalidate-id % secondary-key)))
-         dorun)))
+  (memo-clear-tags! [tag id]))
 
 (defn update-tag-caches!
   "For each memoized function with the specified tag, set the Cache used by the fn to (cache-fn current-cache).
 
   Cache update function is ran on each
   memoized function (mount point), so if one cache is backing multiple functions, the cache update function is called
-  multiple timed on it. If you want to run cache-fn one each Cache instance only once, I recommend wrapping it
+  multiple times on it. If you want to run cache-fn one each Cache instance only once, I recommend wrapping it
   in clojure.core/memoize.
 
   If caches are thread-bound to a different value with with-caches, then those

@@ -119,4 +119,8 @@ Later you can invalidate tagged entries:
 
 ```clojure
 (m/memo-clear-tag! :person 1)
+
+;; get better atomicity with bulk operation
+
+(m/memo-clear-tags! [:person 1] [:user 33])
 ```

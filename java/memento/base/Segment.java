@@ -13,6 +13,8 @@ public class Segment {
     private IFn keyFn;
     private Object id;
 
+    private volatile boolean lockout = false;
+
     public Segment(IFn f, IFn keyFn, Object id) {
         this.f = f;
         this.keyFn = keyFn;
@@ -48,7 +50,7 @@ public class Segment {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Segment segment = (Segment) o;
-        return f.equals(segment.f) && keyFn.equals(segment.keyFn) && id.equals(segment.id);
+        return keyFn.equals(segment.keyFn) && id.equals(segment.id);
     }
 
     @Override
@@ -63,5 +65,13 @@ public class Segment {
                 ", keyFn=" + keyFn +
                 ", id=" + id +
                 '}';
+    }
+
+    public boolean isLockout() {
+        return lockout;
+    }
+
+    public void setLockout(boolean lockout) {
+        this.lockout = lockout;
     }
 }

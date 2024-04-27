@@ -51,9 +51,9 @@ public abstract class MultiCache implements ICache {
     }
 
     @Override
-    public ICache invalidateId(Object id) {
-        cache.invalidateId(id);
-        upstream.invalidateId(id);
+    public ICache invalidateIds(Iterable<Object> ids) {
+        cache.invalidateIds(ids);
+        upstream.invalidateIds(ids);
         return this;
     }
 

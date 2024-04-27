@@ -7,7 +7,7 @@
            (java.util.concurrent ConcurrentHashMap)
            (memento.base CacheKey EntryMeta ICache Segment)
            (com.github.benmanes.caffeine.cache Cache Caffeine Weigher Ticker)
-           (memento.caffeine SecondaryIndexOps Joinable SpecialPromise)
+           (memento.caffeine CaffeineCache_ SecondaryIndexOps Joinable SpecialPromise)
            (memento.mount IMountPoint)))
 
 (defn conf->sec-index
@@ -36,7 +36,8 @@
                                               (.getArgs ^CacheKey k)
                                               (b/unwrap-meta v)))))
       weak-keys (.weakKeys)
-      ;; These are disallowed in Async caches
+      ;; these don't make sense as the caller cannot hold the promises we use, also EntryMeta objects
+      ;; mean that cached values have another wrapper yet again
       ;weak-values (.weakValues)
       soft-values (.softValues)
       ttl (.expireAfterWrite (b/parse-time-scalar ttl) (b/parse-time-unit ttl))
@@ -61,51 +62,24 @@
 
 ;;;;;;;;;;;;;;
 ; ->key-fn take 2 args f and key
-(defrecord CaffeineCache [conf ^Cache caffeine-cache ->key-fn ret-fn ^ConcurrentHashMap sec-index]
+(defrecord CaffeineCache [conf ^CaffeineCache_ caffeine-cache]
   ICache
   (conf [this] conf)
   (cached [this segment args]
-    (b/unwrap-meta
-      (let [f (if ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper (.getF segment) args))) (.getF segment))
-            k (->key-fn segment args)
-            p (SpecialPromise.)]
-        (if-some [^Joinable prev-p (-> caffeine-cache .asMap (.putIfAbsent k p))]
-          (.join prev-p)
-          (try
-            (.markLoadStart p k)
-            (let [result (AFn/applyToHelper f args)]
-              (SecondaryIndexOps/secIndexConj sec-index k result)
-              (when (and (instance? EntryMeta result) (.isNoCache ^EntryMeta result))
-                (.remove (.asMap caffeine-cache) k))
-              (.deliver p result)
-              result)
-            (catch Throwable t
-              (.remove (.asMap caffeine-cache) k)
-              (.deliverException p t)
-              (throw t)))))))
+    (.cached caffeine-cache segment args))
   (ifCached [this segment args]
-    (if-some [v (.getIfPresent caffeine-cache (->key-fn segment args))]
-      (b/unwrap-meta (.getNow ^Joinable v b/absent))
-      b/absent))
+    (.ifCached caffeine-cache segment args))
   (invalidate [this segment]
-    (loop [^Iterator it (.. (.asMap caffeine-cache) keySet iterator)]
-      (if (.hasNext it)
-        (do (when (= (.getId segment) (.getId ^CacheKey (.next it)))
-              (.remove it))
-            (recur it))
-        this)))
-  (invalidate [this segment args] (.invalidate caffeine-cache (->key-fn segment args)) this)
+    (.invalidate caffeine-cache ^Segment segment)
+    this)
+  (invalidate [this segment args] (.invalidate caffeine-cache ^Segment segment args)
+    this)
   (invalidateAll [this] (.invalidateAll caffeine-cache) this)
-  (invalidateId [this id]
-    (when-let [cache-keys (.remove sec-index id)]
-      (.invalidateAll caffeine-cache cache-keys))
+  (invalidateIds [this ids]
+    (.invalidateIds caffeine-cache ids)
     this)
   (addEntries [this segment args-to-vals]
-    (reduce-kv #(let [k (->key-fn segment %2)
-                      _ (SecondaryIndexOps/secIndexConj sec-index k %3)]
-                  (.put caffeine-cache k (val->cval %3)))
-               nil
-               args-to-vals)
+    (.addEntries caffeine-cache segment args-to-vals)
     this)
   (asMap [this] (persistent!
                   (reduce (fn [m [k v]] (assoc-imm-val! m k v b/unwrap-meta))
@@ -121,13 +95,11 @@
 
 (defmethod b/new-cache :memento.core/caffeine [conf]
   (let [sec-index (conf->sec-index conf)]
-    (->CaffeineCache conf
-              (.build (conf->builder conf sec-index))
-              (if-let [key-fn (:memento.core/key-fn conf)]
-                (fn [^Segment segment args] (CacheKey. (.getId segment) (key-fn ((.getKeyFn segment) args))))
-                (fn [^Segment segment args] (CacheKey. (.getId segment) ((.getKeyFn segment) args))))
-              (:memento.core/ret-fn conf)
-              sec-index)))
+    (->CaffeineCache conf (CaffeineCache_.
+                            (conf->builder conf sec-index)
+                            (:memento.core/key-fn conf)
+                            (:memento.core/ret-fn conf)
+                            (conf->sec-index conf)))))
 
 (defn stats
   "Return caffeine stats for the cache if it is a caffeine Cache.
@@ -138,7 +110,7 @@
   [fn-or-cache]
   (if (instance? ICache fn-or-cache)
     (when (instance? CaffeineCache fn-or-cache)
-      (.stats ^Cache (:caffeine-cache fn-or-cache)))
+      (.stats ^CaffeineCache_ (:caffeine-cache fn-or-cache)))
     (stats (.mountedCache ^IMountPoint fn-or-cache))))
 
 (defn to-data [cache]
@@ -147,14 +119,8 @@
       (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m [(.getId k) (.getArgs k)] v #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
                                                                                        nil %)))
               (transient {})
-              (.asMap ^Cache caffeine)))))
+              (.asMap ^CaffeineCache_ caffeine)))))
 
 (defn load-data [cache data-map]
-  (when-let [caffeine (:caffeine-cache cache)]
-    (reduce-kv
-      (fn [^Cache c k v]
-        (SecondaryIndexOps/secIndexConj (:sec-index cache) k v)
-        (.put c (CacheKey. (first k) (second k)) (val->cval v))
-        c)
-      caffeine
-      data-map)))
+  (.loadData ^CaffeineCache_ (:caffeine-cache cache) data-map)
+  cache)
