@@ -28,6 +28,10 @@ Why is there a need for another caching library?
 - size based eviction that puts limits around more than one function at the time
 - cache events
 
+## Performance
+
+- [**Performance**](doc/performance.md)
+
 ## Adding cache to a function
 
 **With require `[memento.core :as m][memento.config :as mc]`:**
@@ -308,10 +312,6 @@ It uses finalize, which isn't free (takes extra work to allocate and GC has to w
 if you don't use namespace reloading, and you want to optimize you can disable reload guard objects.
 
 Set `-Dmemento.reloadable=false` JVM option (or change `memento.config/reload-guards?` var root binding).
-
-## Developer information
-
-- [**Performance**](doc/performance.md)
 
 ## Breaking changes
 
