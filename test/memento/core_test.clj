@@ -346,7 +346,7 @@
 (deftest concurrent-load
   (testing "concurrent test"
     (let [cnt (atom 0)
-          f (m/memo (fn [x] (println "x")
+          f (m/memo (fn [x]
                       (Thread/sleep 1000)
                       (swap! cnt inc) x)
                     inf)
@@ -357,3 +357,19 @@
   (testing "vectors don't throw exception when used with key-fn*"
     (let [c (m/memo identity (assoc inf mc/key-fn* identity))]
       (is (some? (m/memo-add! c {[1] 2}))))))
+
+(deftest invalidation-during-load-test
+  (testing "bulk invalidation test"
+    (let [a (atom 0)
+          c (m/memo (fn [] (Thread/sleep 3000)
+                      (m/with-tag-id (swap! a inc) :xx 1))
+                    (assoc inf mc/tags :xx))]
+      (future (Thread/sleep 100)
+              (m/memo-clear-tag! :xx 1))
+      (is (= 2 (c)))))
+  (testing "Invalidation during load test"
+    (let [a (atom 0)
+          c (m/memo (fn [] (Thread/sleep 300) (swap! a inc)) inf)]
+      (future (Thread/sleep 10)
+              (m/memo-clear! c))
+      (is (= 2 (c))))))

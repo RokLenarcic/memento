@@ -5,7 +5,7 @@ import clojure.lang.ISeq;
 
 /**
  * Protocol for Cache. It houses entries for multiple functions.
- *
+ * <p>
  * Most functions receive a Segment object that should be used to partition for different functions
  * and using other :
  * - id: use for separating caches, it is either name specified by user's config, or var name or function object
@@ -15,15 +15,17 @@ import clojure.lang.ISeq;
 public interface ICache {
     /**
      * Return the conf for this cache.
+     *
      * @return
      */
     IPersistentMap conf();
 
     /**
      * Return the cache value.
-     *
+     * <p>
      * - segment is Segment record provided by the mount point, it contains information that allows Cache
      * to separate caches for different functions
+     *
      * @param segment
      * @param args
      * @return
@@ -32,6 +34,7 @@ public interface ICache {
 
     /**
      * Return cached value if present (and available immediately) in cache or memento.base/absent otherwise.
+     *
      * @param segment
      * @param args
      * @return
@@ -40,6 +43,7 @@ public interface ICache {
 
     /**
      * Invalidate all the entries linked a mount's single arg list, return Cache
+     *
      * @param segment
      * @return
      */
@@ -47,6 +51,7 @@ public interface ICache {
 
     /**
      * Invalidate all the entries linked to a mount, return Cache
+     *
      * @param segment
      * @param args
      * @return
@@ -55,12 +60,14 @@ public interface ICache {
 
     /**
      * Invalidate all entries, returns Cache
+     *
      * @return
      */
     ICache invalidateAll();
 
     /**
      * Invalidate entries with these secondary IDs, returns Cache. Each ID is a pair of tag and object
+     *
      * @param id
      * @return
      */
@@ -68,6 +75,7 @@ public interface ICache {
 
     /**
      * Add entries as for a function
+     *
      * @param segment
      * @param argsToVals
      * @return
@@ -76,12 +84,14 @@ public interface ICache {
 
     /**
      * Return all entries in the cache with keys shaped like as per cache implementation.
+     *
      * @return
      */
     IPersistentMap asMap();
 
     /**
      * Return all entries in the cache for a mount with keys shaped like as per cache implementation.
+     *
      * @param segment
      * @return
      */

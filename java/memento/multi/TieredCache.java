@@ -24,6 +24,7 @@ public class TieredCache extends MultiCache {
         public AskUpstream(Segment segment) {
             this.segment = segment;
         }
+
         @Override
         public Object call() {
             return upstream.cached(segment, ArraySeq.create());

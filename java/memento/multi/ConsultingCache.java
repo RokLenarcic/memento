@@ -21,6 +21,7 @@ public class ConsultingCache extends MultiCache {
         public UpstreamOrCalc(Segment segment) {
             this.segment = segment;
         }
+
         @Override
         public Object call() {
             ISeq s = ArraySeq.create();

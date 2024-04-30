@@ -1,7 +1,11 @@
 package memento.caffeine;
 
+import clojure.lang.ISeq;
 import memento.base.CacheKey;
+import memento.base.EntryMeta;
+import memento.base.LockoutMap;
 
+import java.util.HashSet;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -10,14 +14,14 @@ import java.util.concurrent.CountDownLatch;
  * This class is NOT threadsafe. The intended use is as a faster CompletableFuture that is
  * aware of the thread that made it, so it can detect when same thread is trying to await on it
  * and throw to prevent deadlock.
- *
+ * <p>
  * It is also expected that it is created and delivered by the same thread and it is expected that
  * any other thread is awaiting result and that only a single attempt is made at delivering the result.
- *
+ * <p>
  * It does not include logic to deal with multiple calls to deliver the promise, as it's optimized for
  * a specific use case.
  */
-public class SpecialPromise implements Joinable {
+public class SpecialPromise {
 
     private static final AltResult NIL = new AltResult(null);
     private final CountDownLatch d = new CountDownLatch(1);
@@ -25,53 +29,28 @@ public class SpecialPromise implements Joinable {
     // if current thread is one that created and started the load on the promise
     // so even with non-volatile, check is only true if thread is same as current thread
     // so no memory barrier needed
-    private CacheKey context;
-    private Thread thread;
+    private final CacheKey context;
+    private final HashSet<Object> invalidatedIds = new HashSet<>();
+    private volatile Thread thread;
     private volatile Object result;
+    private volatile boolean unviable = false;
 
-    private volatile boolean invalid = false;
-
-    public static Joinable completed(Object v) {
-        return new Joinable() {
-            private volatile boolean invalid = false;
-
-            @Override
-            public Object join() {
-                return v;
-            }
-
-            @Override
-            public Object getNow(Object valueIfAbsent) {
-                return v;
-            }
-
-            @Override
-            public void invalidate() {
-                invalid = true;
-            }
-
-            @Override
-            public boolean isInvalid() {
-                return invalid;
-            }
-        };
-    }
-
-    public void markLoadStart(CacheKey context) {
-        this.thread = Thread.currentThread();
+    public SpecialPromise(CacheKey context) {
         this.context = context;
     }
 
-    @Override
+    public void init() {
+        this.thread = Thread.currentThread();
+    }
+
     public Object join() throws Throwable {
+        if (thread == Thread.currentThread()) {
+            throw new StackOverflowError("Recursive load on key: " + context);
+        }
         Object r;
         if ((r = result) == null) {
-            if (Thread.currentThread() == thread) {
-                throw new StackOverflowError("Recursive load on key: " + context);
-            } else {
-                d.await();
-                r = result;
-            }
+            d.await();
+            r = result;
         }
         if (r instanceof AltResult) {
             Throwable x = ((AltResult) r).value;
@@ -85,18 +64,27 @@ public class SpecialPromise implements Joinable {
         }
     }
 
-    public void deliver(Object r) {
-        result = r == null ? NIL : r;
-        context = null;
-        thread = null;
-        d.countDown();
+    private boolean isLockedOut(Object r) {
+        try {
+            return LockoutMap.awaitLockout(r);
+        } catch (InterruptedException e) {
+            return true;
+        }
+    }
+
+    // Returns true if delivered object is viable
+    public boolean deliver(Object r) {
+        if (isLockedOut(r) || unviable || (r instanceof EntryMeta && hasInvalidatedTagId((EntryMeta) r))) {
+            unviable = true;
+            return false;
+        } else {
+            result = r == null ? NIL : r;
+            return true;
+        }
     }
 
     public void deliverException(Throwable t) {
         result = new AltResult(t);
-        context = null;
-        thread = null;
-        d.countDown();
     }
 
     public Object getNow(Object valueIfAbsent) throws Throwable {
@@ -113,13 +101,37 @@ public class SpecialPromise implements Joinable {
         }
     }
 
-    @Override
-    public void invalidate() {
-        invalid = true;
+    public void abandonLoad() {
+        unviable = true;
     }
 
-    public boolean isInvalid() {
-        return invalid;
+    public void finishLoad() {
+        d.countDown();
+    }
+
+    public boolean isUnviable() {
+        return unviable;
+    }
+
+    private boolean hasInvalidatedTagId(EntryMeta entryMeta) {
+        synchronized (invalidatedIds) {
+            ISeq s = entryMeta.getTagIdents().seq();
+            while (s != null) {
+                if (invalidatedIds.contains(s.first())) {
+                    return true;
+                }
+                s = s.next();
+            }
+        }
+        return false;
+    }
+
+    public void addInvalidIds(Iterable<Object> ids) {
+        synchronized (invalidatedIds) {
+            for (Object id : ids) {
+                invalidatedIds.add(id);
+            }
+        }
     }
 
     private static class AltResult {

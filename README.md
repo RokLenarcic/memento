@@ -264,6 +264,12 @@ You can add tags to the caches. Tags enable that you:
 
 This is a very powerful feature, [read more here.](doc/tags.md)
 
+## Loads and invalidations
+
+Cache only has a single ongoing load for a key going at any one time. For Caffeine cache, if a key is invalidated
+during the load, the load is repeated. This is the only way you can get multiple function invocations happen for a single
+cached function call.
+
 ## Namespace scan
 
 You can scan loaded namespaces for annotated vars and automatically create caches.
@@ -314,6 +320,9 @@ if you don't use namespace reloading, and you want to optimize you can disable r
 Set `-Dmemento.reloadable=false` JVM option (or change `memento.config/reload-guards?` var root binding).
 
 ## Breaking changes
+
+Patch versions are compatible. Minor version change breaks API for implementation authors, but not for users,
+major version change breaks user API.
 
 Version 1.0.x changed implementation from Guava to Caffeine
 Version 0.9.0 introduced many breaking changes.

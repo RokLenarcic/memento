@@ -124,3 +124,9 @@ Later you can invalidate tagged entries:
 
 (m/memo-clear-tags! [:person 1] [:user 33])
 ```
+
+## Invalidation atomicity
+
+```
+
+```

@@ -1,9 +1,15 @@
 # Changelog
 
-## 1.1.55
+## 1.2.57
 
 - add predicate memento.core/none-cache? that checks if cache is of none type
-- new
+- new function memento.core/caches-by-tag
+- important improvement of atomicity for invalidations by tag or function
+- important fix for thread synchronization when adding tagged entries
+- important fix for secondary indexes clearing
+- reduced memory use
+- improving performance on evictions when an eviction listener isn't used
+- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of tag ids, the implementations are expected to take care to block loads until invalidations are complete. Use the `memento.base/lockout-map` for this purpose.
 
 ## 1.1.54
 

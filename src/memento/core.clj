@@ -5,9 +5,9 @@
             [memento.caffeine]
             [memento.multi :as multi]
             [memento.mount :as mount])
-  (:import (java.util ArrayList HashSet IdentityHashMap)
+  (:import (java.util IdentityHashMap)
            (java.util.function BiFunction)
-           (memento.base EntryMeta ICache LockoutMap)
+           (memento.base EntryMeta ICache)
            (memento.mount CachedFn IMountPoint)))
 
 (defn do-not-cache
@@ -146,7 +146,7 @@
   (get @mount/tags tag []))
 
 (defn caches-by-tag
-  "Returns a collection of caches that are mounted with a tag"
+  "Returns a collection of distinct caches that are mounted with a tag"
   [tag]
   (let [m (IdentityHashMap.)]
     (run! #(.put m (mount/mounted-cache %) nil) (mounts-by-tag tag))
@@ -179,7 +179,7 @@
     (try
       (run! (fn [e] (base/invalidate-ids (key e) (val e))) cache->ids)
       (finally
-        (.endInvalidation base/lockout-map tag+ids latch)))))
+        (.endLockout base/lockout-map tag+ids latch)))))
 
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."

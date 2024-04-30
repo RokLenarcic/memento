@@ -1,10 +1,18 @@
 package memento.base;
 
-import clojure.lang.*;
+import clojure.lang.ISeq;
+import clojure.lang.ITransientMap;
+import clojure.lang.PersistentHashMap;
 
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * This class represents a global map of ongoing bulk invalidations of Tag Ids. Await lockout can be used
+ * to await for bulk invalidation to finish. Adding listeners is used to enable implementations to
+ * be able to communicate these lockouts outside the JVM.
+ */
 public class LockoutMap {
 
     public static LockoutMap INSTANCE = new LockoutMap();
@@ -15,8 +23,15 @@ public class LockoutMap {
 
     }
 
+    private final CopyOnWriteArraySet<Listener> listeners = new CopyOnWriteArraySet<>();
+
+    public void addListener(Listener l) {
+        listeners.add(l);
+    }
+
     /**
      * Add a new lockout, returning the Latch, (if newer than existing) for the given keys
+     *
      * @param tagsAndIds
      * @return
      */
@@ -27,36 +42,39 @@ public class LockoutMap {
         do {
             oldMap = m.get();
             ITransientMap newMap = oldMap.asTransient();
-            for(Object e : tagsAndIds) {
+            for (Object e : tagsAndIds) {
                 newMap.assoc(e, latch);
             }
             newv = (PersistentHashMap) newMap.persistent();
-        } while(!m.compareAndSet(oldMap, newv));
+        } while (!m.compareAndSet(oldMap, newv));
+        listeners.forEach(l -> l.startLockout(tagsAndIds, latch));
         return latch;
     }
 
     /**
      * End lockout for keys and the marker. After map is updated, marker's latch is released
+     *
      * @param tagsAndIds
      * @param latch
      */
-    public void endInvalidation(Iterable<Object> tagsAndIds, CountDownLatch latch) {
+    public void endLockout(Iterable<Object> tagsAndIds, CountDownLatch latch) {
         PersistentHashMap oldMap;
         PersistentHashMap newv;
         do {
             oldMap = m.get();
             ITransientMap newMap = oldMap.asTransient();
-            for(Object e : tagsAndIds) {
+            for (Object e : tagsAndIds) {
                 if (oldMap.get(e) == latch) {
                     newMap.without(e);
                 }
             }
             newv = (PersistentHashMap) newMap.persistent();
-        } while(!m.compareAndSet(oldMap, newv));
+        } while (!m.compareAndSet(oldMap, newv));
+        listeners.forEach(l -> l.endLockout(tagsAndIds, latch));
         latch.countDown();
     }
 
-    private boolean awaitMarker(PersistentHashMap lockouts, Object obj) throws InterruptedException {
+    private static boolean awaitMarker(PersistentHashMap lockouts, Object obj) throws InterruptedException {
         CountDownLatch latch = (CountDownLatch) lockouts.get(obj);
         if (latch != null) {
             latch.await();
@@ -69,15 +87,11 @@ public class LockoutMap {
     /**
      * It awaits an invalidations to finish, returns after that. Returns true if the entry
      * was invalid and an invalidation was awaited.
-     *
      */
-    public boolean awaitLockout(Segment segment, Object promiseValue) throws InterruptedException {
-        PersistentHashMap invalidations = m.get();
+    public static boolean awaitLockout(Object promiseValue) throws InterruptedException {
+        PersistentHashMap invalidations = LockoutMap.INSTANCE.m.get();
         if (invalidations.isEmpty()) {
             return false;
-        }
-        if (awaitMarker(invalidations, segment)) {
-            return true;
         }
         if (promiseValue instanceof EntryMeta) {
             ISeq identSeq = ((EntryMeta) promiseValue).getTagIdents().seq();
@@ -91,4 +105,9 @@ public class LockoutMap {
         return false;
     }
 
+    public interface Listener {
+        void startLockout(Iterable<Object> tagsAndIds, CountDownLatch latch);
+
+        void endLockout(Iterable<Object> tagsAndIds, CountDownLatch latch);
+    }
 }
