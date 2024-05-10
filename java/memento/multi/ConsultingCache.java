@@ -11,7 +11,7 @@ public class ConsultingCache extends MultiCache {
 
     @Override
     public Object cached(Segment segment, ISeq args) {
-        return cache.cached(new Segment(new UpstreamOrCalc(segment), segment.getKeyFn(), segment.getId()), args);
+        return cache.cached(new Segment(new UpstreamOrCalc(segment), segment.getKeyFn(), segment.getId(), segment.getConf()), args);
     }
 
     private class UpstreamOrCalc implements IFn {

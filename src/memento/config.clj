@@ -19,10 +19,11 @@
   (Boolean/valueOf (System/getProperty "memento.enabled" "true")))
 
 (def ^:redef reload-guards?
-  "If false, then all cache attach operations create a cache that does no
-  caching (changing this value doesn't affect caches already created).
+  "If true, then whenever a function cached with tags is garbage collected (e.g. after a namespace reload in REPL),
+  a cleanup is done of global tags map. Can be turned off if you don't intend to reload namespaces or do other
+  actions that would GC cached function instances.
 
-  Initially has the value of java property `memento.enabled` (defaulting to true)."
+  Initially has the value of java property `memento.reloadable` (defaulting to true)."
   (Boolean/valueOf (System/getProperty "memento.reloadable" "true")))
 
 (def ^:dynamic *default-type* "Default cache type." :memento.core/none)
@@ -39,10 +40,11 @@
 
 (def bind-mode
   "Function bind setting, defaults to :new. It governs what the bind will do if you try to bind
-  a cache to a function that is already cached. Options are:
+  a cache to a function that is already cached, e.g. what happens when memo is called multiple times
+  on same Var. Options are:
   - :keep, keeps old cache binding
   - :new, keeps the new cache binding
-  - :stack, stacks the caches"
+  - :stack, stacks the caches, so the new binding wraps the older cached function"
   :memento.core/bind-mode)
 
 (def key-fn
@@ -169,3 +171,8 @@
   "The key extracted from object/var meta and used as mount configuration when
   1-arg memo is called or ns-scan based mounting is performed."
   :memento.core/mount)
+
+(def ret-ex-fn
+  "Cache and function bind setting, a function that is ran to process the throwable thrown by the function,
+   (fn [fn-args throwable] throwable)."
+  :memento.core/ret-ex-fn)

@@ -9,7 +9,6 @@ import memento.base.CacheKey;
 import memento.base.EntryMeta;
 import memento.base.LockoutMap;
 import memento.base.Segment;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,17 +22,20 @@ public class CaffeineCache_ {
     private final SecondaryIndex secIndex;
     private final IFn retFn;
 
+    private final IFn retExFn;
+
     private final Cache<CacheKey, Object> delegate;
 
     private final Set<SpecialPromise> loads = ConcurrentHashMap.newKeySet();
 
-    public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, SecondaryIndex secIndex) {
+    public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn, SecondaryIndex secIndex) {
         this.keyFn = keyFn == null ?
                 (segment, args) -> new CacheKey(segment.getId(), segment.getKeyFn().invoke(args)) :
                 (segment, args) -> new CacheKey(segment.getId(), keyFn.invoke(segment.getKeyFn().invoke(args)));
         this.retFn = retFn;
         this.delegate = builder.build();
         this.secIndex = secIndex;
+        this.retExFn = retExFn;
     }
 
     private void initLoad(SpecialPromise promise) {
@@ -70,7 +72,7 @@ public class CaffeineCache_ {
                     return EntryMeta.unwrap(result);
                 } catch (Throwable t) {
                     delegate.asMap().remove(key, p);
-                    p.deliverException(t);
+                    p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(t, args));
                     throw t;
                 } finally {
                     p.finishLoad();
@@ -145,7 +147,7 @@ public class CaffeineCache_ {
         for (Object id : ids) {
             secIndex.drainKeys(id, keys::add);
         }
-        ConcurrentMap<@NonNull CacheKey, @NonNull Object> map = delegate.asMap();
+        ConcurrentMap<CacheKey, Object> map = delegate.asMap();
         for (CacheKey k : keys) {
             Object removed = map.remove(k);
             if (removed instanceof SpecialPromise) {
@@ -173,7 +175,7 @@ public class CaffeineCache_ {
         return delegate.stats();
     }
 
-    public void loadData(APersistentMap map) {
+    public void loadData(Map map) {
         map.forEach((Object k, Object v) -> {
             List<Object> list = (List<Object>) k;
             CacheKey key = new CacheKey(list.get(0), list.get(1));

@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [memento.core :as m :refer :all]
             [memento.config :as mc])
-  (:import (memento.base EntryMeta ICache)
+  (:import (java.io IOException)
+           (memento.base EntryMeta ICache)
            (memento.mount IMountPoint)))
 
 (def inf {mc/type mc/caffeine})
@@ -373,3 +374,14 @@
       (future (Thread/sleep 10)
               (m/memo-clear! c))
       (is (= 2 (c))))))
+
+(deftest ret-ex-fn-test
+  (testing "returns transformed-exception"
+    (let [e (RuntimeException.)
+          c (m/memo (fn [] (Thread/sleep 100)
+                      (throw (IOException.)))
+                    (assoc inf mc/ret-ex-fn (constantly e)))
+          f1 (future (try (c) (catch Exception e e)))
+          f2 (future (try (c) (catch Exception e e)))]
+      (is (= e @f1))
+      (is (= e @f2)))))

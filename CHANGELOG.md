@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.58
+
+- added ret-ex-fn option to transform exceptions being thrown by cache in the same way ret-fn works for values
+
 ## 1.2.57
 
 - add predicate memento.core/none-cache? that checks if cache is of none type

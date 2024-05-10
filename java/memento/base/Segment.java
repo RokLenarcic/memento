@@ -1,6 +1,7 @@
 package memento.base;
 
 import clojure.lang.IFn;
+import clojure.lang.IPersistentMap;
 
 import java.util.Objects;
 
@@ -8,17 +9,21 @@ import java.util.Objects;
 // - fn to run
 // - key-fn to apply for keys from this segment
 // - segment ID, use this rather than f to separate segments in cache
+// - conf is mount point (or segment) conf
 public class Segment {
     private IFn f;
     private IFn keyFn;
     private Object id;
 
+    private IPersistentMap conf;
+
     private volatile boolean lockout = false;
 
-    public Segment(IFn f, IFn keyFn, Object id) {
+    public Segment(IFn f, IFn keyFn, Object id, IPersistentMap conf) {
         this.f = f;
         this.keyFn = keyFn;
         this.id = id;
+        this.conf = conf;
     }
 
     public IFn getF() {
@@ -43,6 +48,14 @@ public class Segment {
 
     public void setId(Object id) {
         this.id = id;
+    }
+
+    public IPersistentMap getConf() {
+        return conf;
+    }
+
+    public void setConf(IPersistentMap conf) {
+        this.conf = conf;
     }
 
     @Override

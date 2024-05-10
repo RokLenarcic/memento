@@ -87,6 +87,7 @@
                           (conf->builder conf)
                           (:memento.core/key-fn conf)
                           (:memento.core/ret-fn conf)
+                          (:memento.core/ret-ex-fn conf)
                           (conf->sec-index conf))))
 
 (defn stats

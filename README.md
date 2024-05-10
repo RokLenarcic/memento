@@ -137,6 +137,11 @@ See: [Changing the key for cached entry](doc/key-fn.md)
 A function that is called on every cached function return value. Used for general transformations
 of return values.
 
+#### mc/ret-ex-fn
+
+A function that is called on every thrown Throwable. Used for general transformations
+of thrown exceptions values.
+
 #### mc/seed
 
 Initial entries to load in the cache.

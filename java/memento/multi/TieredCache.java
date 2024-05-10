@@ -14,7 +14,7 @@ public class TieredCache extends MultiCache {
 
     @Override
     public Object cached(Segment segment, ISeq args) {
-        return cache.cached(new Segment(new AskUpstream(segment), segment.getKeyFn(), segment.getId()), args);
+        return cache.cached(new Segment(new AskUpstream(segment), segment.getKeyFn(), segment.getId(), segment.getConf()), args);
     }
 
     private class AskUpstream implements IFn {

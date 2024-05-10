@@ -12,7 +12,7 @@
 (def tags "Map tag to mount-point" (atom {}))
 
 (def configuration-props [config/key-fn config/ret-fn config/seed config/tags
-                          config/evt-fn config/id config/key-fn*])
+                          config/evt-fn config/id config/key-fn* config/ret-ex-fn])
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"
@@ -67,6 +67,18 @@
     mount-conf
     {config/tags ((if (sequential? mount-conf) vec vector) mount-conf)}))
 
+(defn wrap-fn
+  [f ret-fn ret-ex-fn]
+  (cond
+    (and ret-fn ret-ex-fn) (fn [& args]
+                             (try (ret-fn args (AFn/applyToHelper f args))
+                                  (catch Throwable t (throw (ret-ex-fn t)))))
+    ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper f args)))
+    ret-ex-fn (fn [& args]
+                (try (AFn/applyToHelper f args)
+                     (catch Throwable t (throw (ret-ex-fn t)))))
+    :else f))
+
 (defn create-mount
   "Create mount record by specified map conf"
   [f cache mount-conf]
@@ -75,10 +87,8 @@
                      (fn [args] (AFn/applyToHelper base (if (instance? ISeq args) args (seq args)))))
                    identity)
         evt-fn (config/evt-fn mount-conf (fn [_ _] nil))
-        f* (if-let [ret-fn (config/ret-fn mount-conf)]
-             (fn [& args] (ret-fn args (AFn/applyToHelper f args)))
-             f)
-        segment (Segment. f* key-fn (mount-conf config/id f))]
+        f* (wrap-fn f (config/ret-fn mount-conf) (config/ret-ex-fn mount-conf))
+        segment (Segment. f* key-fn (mount-conf config/id f) mount-conf)]
     (if-let [t (config/tags mount-conf)]
       (let [wrapped-t (if (sequential? t) t (vector t))
             mp (->TaggedMountPoint wrapped-t segment evt-fn)]
