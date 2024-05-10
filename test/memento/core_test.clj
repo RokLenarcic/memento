@@ -380,7 +380,7 @@
     (let [e (RuntimeException.)
           c (m/memo (fn [] (Thread/sleep 100)
                       (throw (IOException.)))
-                    (assoc inf mc/ret-ex-fn (constantly e)))
+                    (assoc inf mc/ret-ex-fn (fn [_ ee] (when (instance? IOException ee) e))))
           f1 (future (try (c) (catch Exception e e)))
           f2 (future (try (c) (catch Exception e e)))]
       (is (= e @f1))

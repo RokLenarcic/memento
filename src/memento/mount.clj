@@ -72,11 +72,11 @@
   (cond
     (and ret-fn ret-ex-fn) (fn [& args]
                              (try (ret-fn args (AFn/applyToHelper f args))
-                                  (catch Throwable t (throw (ret-ex-fn t)))))
+                                  (catch Throwable t (throw (ret-ex-fn args t)))))
     ret-fn (fn [& args] (ret-fn args (AFn/applyToHelper f args)))
     ret-ex-fn (fn [& args]
                 (try (AFn/applyToHelper f args)
-                     (catch Throwable t (throw (ret-ex-fn t)))))
+                     (catch Throwable t (throw (ret-ex-fn args t)))))
     :else f))
 
 (defn create-mount
