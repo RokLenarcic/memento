@@ -2,7 +2,8 @@
   "Caffeine implementation config helpers.
 
   Contains documented definitions of standard options of Caffeine cache config."
-  {:author "Rok Lenarčič"})
+  {:author "Rok Lenarčič"}
+  (:import (memento.caffeine Expiry)))
 
 (def removal-listener
   "Cache setting, corresponds to .removalListener on Caffeine.
@@ -41,7 +42,8 @@
   - the third argument is the value (after ret-fn being applied)"
   :memento.caffeine/kv-weight)
 
-(def weak-keys
+;; makes no sense, since user cannot hold on to our CacheKey instances
+#_(def weak-keys
   "Cache setting, corresponds to .weakKeys on CacheBuilder.
 
   Boolean flag, enabling storing keys using weak references.
@@ -56,8 +58,7 @@
   The identity comparison makes this not very useful."
   :memento.caffeine/weak-keys)
 
-;; these don't work with our values, we will have to do the work ourselves (future version)
-#_(def weak-values
+(def weak-values
   "Cache setting, corresponds to .weakValues on CacheBuilder.
 
   Boolean flag, enabling storing values using weak references.
@@ -72,10 +73,7 @@
 
   Softly referenced objects are garbage-collected in a globally least-recently-used manner,
   in response to memory demand. Because of the performance implications of using soft references,
-  we generally recommend using the more predictable maximum cache size instead.
-
-  In Memento's case, SoftReference points the CompletableFuture containing the value, so it's always
-  softly reachable."
+  we generally recommend using the more predictable maximum cache size instead."
   :memento.caffeine/soft-values)
 
 (def stats
@@ -99,3 +97,15 @@
   This is useful for testing and you can also make the time move in discrete amounts (e.g. you can
   make all cache accesses in a request have same time w.r.t. eviction)."
   :memento.caffeine/ticker)
+
+(def expiry
+  "A cache and function bind setting, an instance of memento.caffeine.Expiry interface.
+
+  Enables user to specify cached entry expiry on each entry individually. If interface
+  functions return nil, then ttl and fade settings apply."
+  :memento.caffeine/expiry)
+
+(def meta-expiry
+  "A memento.caffeine.Expiry instance that looks for fade and ttl keys on object metas and uses those to control
+  variable expiry."
+  Expiry/META_VAL_EXP)

@@ -5,19 +5,18 @@ import clojure.lang.IPersistentMap;
 
 import java.util.Objects;
 
-// Segment has 3 properties:
+// Segment has properties:
 // - fn to run
 // - key-fn to apply for keys from this segment
 // - segment ID, use this rather than f to separate segments in cache
 // - conf is mount point (or segment) conf
+// - expiry is Segment specific expiry
 public class Segment {
-    private IFn f;
-    private IFn keyFn;
-    private Object id;
+    private final IFn f;
+    private final IFn keyFn;
+    private final Object id;
 
-    private IPersistentMap conf;
-
-    private volatile boolean lockout = false;
+    private final IPersistentMap conf;
 
     public Segment(IFn f, IFn keyFn, Object id, IPersistentMap conf) {
         this.f = f;
@@ -30,32 +29,17 @@ public class Segment {
         return f;
     }
 
-    public void setF(IFn f) {
-        this.f = f;
-    }
-
     public IFn getKeyFn() {
         return keyFn;
     }
 
-    public void setKeyFn(IFn keyFn) {
-        this.keyFn = keyFn;
-    }
 
     public Object getId() {
         return id;
     }
 
-    public void setId(Object id) {
-        this.id = id;
-    }
-
     public IPersistentMap getConf() {
         return conf;
-    }
-
-    public void setConf(IPersistentMap conf) {
-        this.conf = conf;
     }
 
     @Override
@@ -71,20 +55,17 @@ public class Segment {
         return Objects.hash(f, keyFn, id);
     }
 
+    public Segment withFn(IFn newF) {
+        return new Segment(newF, keyFn, id, conf);
+    }
+
     @Override
     public String toString() {
         return "Segment{" +
                 "f=" + f +
                 ", keyFn=" + keyFn +
                 ", id=" + id +
+                ", conf=" + conf +
                 '}';
-    }
-
-    public boolean isLockout() {
-        return lockout;
-    }
-
-    public void setLockout(boolean lockout) {
-        this.lockout = lockout;
     }
 }

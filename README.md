@@ -247,10 +247,18 @@ caches below. Here's an example of using tags when caching and scoped caching
   (get-person-by-id 5))
 ```
 
+## Variable expiry
+
+Instead of setting a fixed duration of validity for entries in a cache, it is possible
+to set these duration on per-entry or per-mount point basis.
+
+Note that for Caffeine cache variable expiry caching is somewhat slower.
+
+### **Read [here](doc/variable-expiry.md)**
+
 ## Additional features
 
 #### [Prevent caching of a specific return value (and general return value xform)](doc/ret-fn.md)
-
 #### [Manually add or evict entries](doc/manual-add-remove.md)
 
 #### `(m/as-map memoized-function)` to get a map of cache entries, also works on MountPoint instances

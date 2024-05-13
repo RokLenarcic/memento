@@ -46,7 +46,7 @@ public class CaffeineCache_ {
     public Object cached(Segment segment, ISeq args) throws Throwable {
         CacheKey key = keyFn.apply(segment, args);
         do {
-            SpecialPromise p = new SpecialPromise(key);
+            SpecialPromise p = new SpecialPromise();
             // check for ongoing load
             Object cached = delegate.asMap().putIfAbsent(key, p);
             if (cached == null) {
@@ -58,7 +58,7 @@ public class CaffeineCache_ {
                         result = retFn.invoke(args, result);
                     }
                     if (!p.deliver(result)) {
-                        // loader was abandoned during load
+                        // The SpecialPromise was invalidated, restart the process
                         delegate.asMap().remove(key, p);
                         continue;
                     }
@@ -75,15 +75,15 @@ public class CaffeineCache_ {
                     p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
                     throw t;
                 } finally {
-                    p.finishLoad();
+                    p.releaseResult();
                     loads.remove(p);
                 }
             } else {
                 // join into ongoing load
                 if (cached instanceof SpecialPromise) {
                     SpecialPromise sp = (SpecialPromise) cached;
-                    Object ret = sp.join();
-                    if (!LockoutMap.awaitLockout(cached) || !sp.isUnviable()) {
+                    Object ret = sp.await(key);
+                    if (ret != EntryMeta.absent && !LockoutMap.awaitLockout(ret)) {
                         // if not invalidated, return the value
                         return EntryMeta.unwrap(ret);
                     }
@@ -106,8 +106,8 @@ public class CaffeineCache_ {
             return absent;
         } else if (v instanceof SpecialPromise) {
             SpecialPromise p = (SpecialPromise) v;
-            Object ret = p.getNow(absent);
-            if (ret == absent || LockoutMap.awaitLockout(ret) || p.isUnviable()) {
+            Object ret = p.getNow();
+            if (ret == absent || LockoutMap.awaitLockout(ret)) {
                 return absent;
             } else {
                 return EntryMeta.unwrap(ret);
@@ -124,7 +124,7 @@ public class CaffeineCache_ {
             if (it.getKey().getId().equals(segment.getId())) {
                 Object v = it.getValue();
                 if (v instanceof SpecialPromise) {
-                    ((SpecialPromise) v).abandonLoad();
+                    ((SpecialPromise) v).invalidate();
                 }
                 iter.remove();
             }
@@ -134,7 +134,7 @@ public class CaffeineCache_ {
     public void invalidate(Segment segment, ISeq args) {
         Object v = delegate.asMap().remove(keyFn.apply(segment, args));
         if (v instanceof SpecialPromise) {
-            ((SpecialPromise) v).abandonLoad();
+            ((SpecialPromise) v).invalidate();
         }
     }
 
@@ -151,7 +151,7 @@ public class CaffeineCache_ {
         for (CacheKey k : keys) {
             Object removed = map.remove(k);
             if (removed instanceof SpecialPromise) {
-                ((SpecialPromise) removed).abandonLoad();
+                ((SpecialPromise) removed).invalidate();
             }
         }
         loads.forEach(row -> row.addInvalidIds(ids));

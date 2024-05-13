@@ -2,10 +2,35 @@
   "Caffeine cache implementation."
   {:author "Rok Lenarčič"}
   (:require [memento.base :as b])
-  (:import (memento.base CacheKey EntryMeta ICache Segment)
+  (:import (java.util.concurrent TimeUnit)
+           (memento.base Durations CacheKey EntryMeta ICache Segment)
            (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker)
-           (memento.caffeine CaffeineCache_ SecondaryIndex SpecialPromise)
+           (memento.caffeine CaffeineCache_ SecondaryIndex SpecialPromise Expiry)
            (memento.mount IMountPoint)))
+
+(defn create-expiry
+  "Assumes variable expiry is needed. So either ttl or fade is a function."
+  [ttl fade ^Expiry cache-expiry]
+  (let [read-default (some-> (or ttl fade) (Durations/nanos))
+        write-default (Durations/nanos (or ttl fade [Long/MAX_VALUE :ns]))]
+    (reify com.github.benmanes.caffeine.cache.Expiry
+      (expireAfterCreate [this k v current-time]
+        (if (instance? SpecialPromise v)
+          Long/MAX_VALUE
+          (.expireAfterUpdate this k v current-time Long/MAX_VALUE)))
+      (expireAfterUpdate [this k v current-time current-duration]
+        (if-let [ret (.ttl cache-expiry {} (.getArgs ^CacheKey k) v)]
+          (Durations/nanos ret)
+          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) v)]
+            (Durations/nanos ret)
+            write-default)))
+      (expireAfterRead [this k v current-time current-duration]
+        (if (instance? SpecialPromise v)
+          current-duration
+          ;; if fade is not specified, keep current validity (probably set by ttl)
+          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) v)]
+            (Durations/nanos ret)
+            (or read-default current-duration)))))))
 
 (defn conf->sec-index
   "Creates secondary index for evictions"
@@ -16,7 +41,7 @@
   "Creates and configures common parameters on the builder."
   [{:memento.core/keys [initial-capacity size< ttl fade]
     :memento.caffeine/keys [weight< removal-listener kv-weight weak-keys weak-values
-                            soft-values refresh stats ticker]}]
+                            soft-values refresh stats ticker expiry]}]
   (cond-> (Caffeine/newBuilder)
     removal-listener (.removalListener (CaffeineCache_/listener removal-listener))
     initial-capacity (.initialCapacity initial-capacity)
@@ -27,15 +52,17 @@
                                  (kv-weight (.getId ^CacheKey k)
                                             (.getArgs ^CacheKey k)
                                             (b/unwrap-meta v)))))
-    weak-keys (.weakKeys)
-    ;; these don't make sense as the caller cannot hold the promises we use, also EntryMeta objects
+    ;; these don't make sense as the caller cannot hold the CacheKey
+    ;;weak-keys (.weakKeys)
+    ;; careful around EntryMeta objects
     ;; mean that cached values have another wrapper yet again
-    ;weak-values (.weakValues)
+    weak-values (.weakValues)
     soft-values (.softValues)
-    ttl (.expireAfterWrite (b/parse-time-scalar ttl) (b/parse-time-unit ttl))
-    fade (.expireAfterAccess (b/parse-time-scalar fade) (b/parse-time-unit fade))
+    expiry (.expireAfter (create-expiry ttl fade expiry))
+    (and (not expiry) ttl) (.expireAfterWrite (Durations/nanos ttl) TimeUnit/NANOSECONDS)
+    (and (not expiry) fade) (.expireAfterAccess (Durations/nanos fade) TimeUnit/NANOSECONDS)
     ;; not currently used because we don't build a loading cache
-    refresh (.refreshAfterWrite (b/parse-time-scalar refresh) (b/parse-time-unit refresh))
+    refresh (.refreshAfterWrite (Durations/nanos refresh) TimeUnit/NANOSECONDS)
     ticker (.ticker (proxy [Ticker] [] (read [] (ticker))))
     stats (.recordStats)))
 
@@ -43,9 +70,12 @@
   "If cached value is a completable future with immediately available value, assoc it to transient."
   [transient-m k v xf]
   (let [cv (if (instance? SpecialPromise v)
-             (.getNow v b/absent)
+             (.getNow ^SpecialPromise v)
              v)]
-    (if (= cv b/absent)
+    (if (instance? SpecialPromise v)
+      (let [cv (.getNow ^SpecialPromise v)]
+        ()))
+    (if (identical? cv b/absent)
       transient-m
       (assoc! transient-m k (xf cv)))))
 

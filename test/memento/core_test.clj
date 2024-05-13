@@ -1,9 +1,12 @@
 (ns memento.core-test
   (:require [clojure.test :refer :all]
             [memento.core :as m :refer :all]
-            [memento.config :as mc])
+            [memento.config :as mc]
+            [memento.caffeine.config :as mcc]
+            )
   (:import (java.io IOException)
            (memento.base EntryMeta ICache)
+           (memento.caffeine Expiry)
            (memento.mount IMountPoint)))
 
 (def inf {mc/type mc/caffeine})
@@ -362,7 +365,7 @@
 (deftest invalidation-during-load-test
   (testing "bulk invalidation test"
     (let [a (atom 0)
-          c (m/memo (fn [] (Thread/sleep 3000)
+          c (m/memo (fn [] (Thread/sleep 1000)
                       (m/with-tag-id (swap! a inc) :xx 1))
                     (assoc inf mc/tags :xx))]
       (future (Thread/sleep 100)
@@ -385,3 +388,40 @@
           f2 (future (try (c) (catch Exception e e)))]
       (is (= e @f1))
       (is (= e @f2)))))
+
+(deftest variable-expiry-test
+  (testing "Variable expiry"
+    (let [c (m/memo
+              identity
+              (assoc inf mcc/expiry
+                         (reify Expiry
+                           (ttl [this _ k v] v)
+                           (fade [this _ k v]))))]
+      (c 1)
+      (c 2)
+      (c 3)
+      (Thread/sleep 1100)
+      (is (= {'(2) 2 '(3) 3} (m/as-map c)))))
+  (testing "Variable expiry fade"
+    (let [c (m/memo
+              identity
+              (assoc inf mcc/expiry
+                         (reify Expiry
+                           (ttl [this _ k v] )
+                           (fade [this _ k v] v))))]
+      (c 1)
+      (c 2)
+      (c 3)
+      (Thread/sleep 1100)
+      (is (= {'(2) 2 '(3) 3} (m/as-map c)))))
+  (testing "variable expiry via meta"
+    (let [c (m/memo
+              #(with-meta {} {mc/ttl (long (+ 1 %))})
+              (assoc inf mcc/expiry mcc/meta-expiry))]
+      (c 1)
+      (c 2)
+      (c 3)
+      (Thread/sleep 1100)
+      (is (= {'(1) {} '(2) {} '(3) {}} (m/as-map c)))
+      (Thread/sleep 1000)
+      (is (= {'(2) {} '(3) {}} (m/as-map c))))))

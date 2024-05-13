@@ -14,12 +14,12 @@ public class TieredCache extends MultiCache {
 
     @Override
     public Object cached(Segment segment, ISeq args) {
-        return cache.cached(new Segment(new AskUpstream(segment), segment.getKeyFn(), segment.getId(), segment.getConf()), args);
+        return cache.cached(segment.withFn(new AskUpstream(segment)), args);
     }
 
     private class AskUpstream implements IFn {
 
-        private Segment segment;
+        private final Segment segment;
 
         public AskUpstream(Segment segment) {
             this.segment = segment;

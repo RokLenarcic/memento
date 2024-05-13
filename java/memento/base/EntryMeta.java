@@ -4,6 +4,7 @@ import clojure.lang.IPersistentSet;
 import clojure.lang.PersistentHashSet;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 public class EntryMeta {
 

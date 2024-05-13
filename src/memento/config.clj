@@ -116,9 +116,9 @@
   :memento.core/size<)
 
 (def ttl
-  "Cache setting, supported by: caffeine, a duration.
+  "Cache and Function bind setting, a duration.
 
-  Specifies that each entry should be automatically removed from the cache once a fixed duration
+  Specifies that each entry should be automatically removed from the cache once a duration
   has elapsed after the entry's creation, or the most recent replacement of its value via a put.
 
   Duration is specified by a number (of seconds) or a vector of a number and unit keyword.
@@ -126,7 +126,7 @@
   :memento.core/ttl)
 
 (def fade
-  "Cache setting, supported by: caffeine, a duration.
+  "Cache and Function bind setting, a duration.
 
   Specifies that each entry should be automatically removed from the cache once a fixed duration
   has elapsed after the entry's creation, the most recent replacement of its value, or its last access.
@@ -153,7 +153,7 @@
   :memento.core/id)
 
 (def timeunits
-  "Timeunits keywords"
+  "Timeunits keywords, corresponds with Durations class."
   {:ns TimeUnit/NANOSECONDS
    :us TimeUnit/MICROSECONDS
    :ms TimeUnit/MILLISECONDS

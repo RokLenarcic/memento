@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.60
+
+- improved variable expiry
+- added stronger prevention of the use of invalid entries
+
+## 1.2.59
+
+- added variable expiry option (see README)
+- removed some reflection
+- enabled weakValues as an option for caffeine cache
+- removed weakKeys as it's not possible to use that option
+
 ## 1.2.58
 
 - added ret-ex-fn option to transform exceptions being thrown by cache in the same way ret-fn works for values

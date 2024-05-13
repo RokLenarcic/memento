@@ -1,5 +1,6 @@
 package memento.base;
 
+import clojure.lang.IPersistentSet;
 import clojure.lang.ISeq;
 import clojure.lang.ITransientMap;
 import clojure.lang.PersistentHashMap;
@@ -89,17 +90,20 @@ public class LockoutMap {
      * was invalid and an invalidation was awaited.
      */
     public static boolean awaitLockout(Object promiseValue) throws InterruptedException {
-        PersistentHashMap invalidations = LockoutMap.INSTANCE.m.get();
-        if (invalidations.isEmpty()) {
-            return false;
-        }
         if (promiseValue instanceof EntryMeta) {
-            ISeq identSeq = ((EntryMeta) promiseValue).getTagIdents().seq();
-            while (identSeq != null) {
-                if (awaitMarker(invalidations, identSeq.first())) {
-                    return true;
+            IPersistentSet idents = ((EntryMeta) promiseValue).getTagIdents();
+            if (idents.count() != 0) {
+                PersistentHashMap invalidations = LockoutMap.INSTANCE.m.get();
+                if (invalidations.isEmpty()) {
+                    return false;
                 }
-                identSeq = identSeq.next();
+                ISeq identSeq = ((EntryMeta) promiseValue).getTagIdents().seq();
+                boolean ret = false;
+                while (identSeq != null) {
+                    ret |= awaitMarker(invalidations, identSeq.first());
+                    identSeq = identSeq.next();
+                }
+                return ret;
             }
         }
         return false;

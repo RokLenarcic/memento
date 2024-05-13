@@ -1,7 +1,6 @@
 package memento.caffeine;
 
 import clojure.lang.ISeq;
-import memento.base.CacheKey;
 import memento.base.EntryMeta;
 import memento.base.LockoutMap;
 
@@ -29,23 +28,17 @@ public class SpecialPromise {
     // if current thread is one that created and started the load on the promise
     // so even with non-volatile, check is only true if thread is same as current thread
     // so no memory barrier needed
-    private final CacheKey context;
     private final HashSet<Object> invalidatedIds = new HashSet<>();
     private volatile Thread thread;
     private volatile Object result;
-    private volatile boolean unviable = false;
-
-    public SpecialPromise(CacheKey context) {
-        this.context = context;
-    }
 
     public void init() {
         this.thread = Thread.currentThread();
     }
 
-    public Object join() throws Throwable {
+    public Object await(Object stackOverflowContext) throws Throwable {
         if (thread == Thread.currentThread()) {
-            throw new StackOverflowError("Recursive load on key: " + context);
+            throw new StackOverflowError("Recursive load on key: " + stackOverflowContext);
         }
         Object r;
         if ((r = result) == null) {
@@ -64,9 +57,9 @@ public class SpecialPromise {
         }
     }
 
-    private boolean isLockedOut(Object r) {
+    private boolean isLockedOut(EntryMeta em) {
         try {
-            return LockoutMap.awaitLockout(r);
+            return LockoutMap.awaitLockout(em);
         } catch (InterruptedException e) {
             return true;
         }
@@ -74,21 +67,29 @@ public class SpecialPromise {
 
     // Returns true if delivered object is viable
     public boolean deliver(Object r) {
-        if (isLockedOut(r) || unviable || (r instanceof EntryMeta && hasInvalidatedTagId((EntryMeta) r))) {
-            unviable = true;
-            return false;
-        } else {
+        if (r instanceof EntryMeta) {
+            EntryMeta em = (EntryMeta) r;
+            if (isLockedOut(em) || hasInvalidatedTagId(em)) {
+                result = EntryMeta.absent;
+                return false;
+            }
+        }
+        if (result != EntryMeta.absent) {
             result = r == null ? NIL : r;
             return true;
         }
+        return false;
     }
 
     public void deliverException(Throwable t) {
         result = new AltResult(t);
     }
 
-    public Object getNow(Object valueIfAbsent) throws Throwable {
+    public Object getNow() throws Throwable {
         Object r;
+        if (d.getCount() != 0) {
+            return EntryMeta.absent;
+        }
         if ((r = result) instanceof AltResult) {
             Throwable x = ((AltResult) r).value;
             if (x == null) {
@@ -97,20 +98,16 @@ public class SpecialPromise {
                 throw x;
             }
         } else {
-            return r == null ? valueIfAbsent : r;
+            return r == null ? EntryMeta.absent : r;
         }
     }
 
-    public void abandonLoad() {
-        unviable = true;
+    public void invalidate() {
+        result = EntryMeta.absent;
     }
 
-    public void finishLoad() {
+    public void releaseResult() {
         d.countDown();
-    }
-
-    public boolean isUnviable() {
-        return unviable;
     }
 
     private boolean hasInvalidatedTagId(EntryMeta entryMeta) {

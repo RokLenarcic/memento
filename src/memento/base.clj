@@ -6,15 +6,15 @@
   {:author "Rok Lenarčič"}
   (:require [memento.config :as config])
   (:import (clojure.lang AFn)
-           (java.util.concurrent TimeUnit)
            (memento.base EntryMeta ICache LockoutMap)))
 
 (def absent "Value that signals absent key." EntryMeta/absent)
 
 (defn unwrap-meta [o] (if (instance? EntryMeta o) (.getV ^EntryMeta o) o))
 
-(def lockout-map "An LockoutMap. Implementation developers use this to do caching in a fashion that is aware
-                       of bulk invalidation. "
+(def ^LockoutMap lockout-map
+  "A LockoutMap. Implementation developers use this to do caching in a fashion that is aware
+   of bulk invalidation. "
   LockoutMap/INSTANCE)
 
 (def no-cache
@@ -46,23 +46,6 @@
 (defmulti new-cache "Instantiate cache. Extension point, do not call directly." config/type)
 
 (defmethod new-cache :memento.core/none [_] no-cache)
-
-(defn parse-time-scalar
-  "Returns the scalar part of time spec. Time can be specified by integer
-  or a vector of two elements, where first element is an integer and the other is
-  the time unit keyword."
-  [time-param]
-  (if (number? time-param) (long time-param) (first time-param)))
-
-(defn ^TimeUnit parse-time-unit
-  "Returns the time unit part of time spec. Time can be specified by integer
-  or a vector of two elements, where first element is an integer and the other is
-  the time unit keyword. If only integer is specified then time unit is seconds."
-  [time-param]
-  (let [unit (if (number? time-param) :s (second time-param))]
-    (or (config/timeunits unit)
-        (throw (ex-info (str "Unknown cache time unit " unit)
-                        {:tu unit})))))
 
 (defn base-create-cache
   "Create a cache.
