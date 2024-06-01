@@ -104,6 +104,11 @@ public class SpecialPromise {
 
     public void invalidate() {
         result = EntryMeta.absent;
+        thread.interrupt();
+    }
+
+    public boolean isInvalid() {
+        return result == EntryMeta.absent;
     }
 
     public void releaseResult() {

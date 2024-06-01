@@ -6,7 +6,6 @@ import clojure.lang.ITransientMap;
 import clojure.lang.PersistentHashMap;
 
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -36,49 +35,50 @@ public class LockoutMap {
      * @param tagsAndIds
      * @return
      */
-    public CountDownLatch startLockout(Iterable<Object> tagsAndIds) {
-        CountDownLatch latch = new CountDownLatch(1);
+    public void startLockout(Iterable<Object> tagsAndIds, LockoutTag tag) {
         PersistentHashMap oldMap;
         PersistentHashMap newv;
         do {
             oldMap = m.get();
             ITransientMap newMap = oldMap.asTransient();
             for (Object e : tagsAndIds) {
-                newMap.assoc(e, latch);
+                newMap.assoc(e, tag);
             }
             newv = (PersistentHashMap) newMap.persistent();
         } while (!m.compareAndSet(oldMap, newv));
-        listeners.forEach(l -> l.startLockout(tagsAndIds, latch));
-        return latch;
+        listeners.forEach(l -> l.startLockout(tagsAndIds, tag));
     }
 
     /**
      * End lockout for keys and the marker. After map is updated, marker's latch is released
      *
      * @param tagsAndIds
-     * @param latch
+     * @param tag
      */
-    public void endLockout(Iterable<Object> tagsAndIds, CountDownLatch latch) {
+    public void endLockout(Iterable<Object> tagsAndIds, LockoutTag tag) {
         PersistentHashMap oldMap;
         PersistentHashMap newv;
         do {
             oldMap = m.get();
             ITransientMap newMap = oldMap.asTransient();
             for (Object e : tagsAndIds) {
-                if (oldMap.get(e) == latch) {
+                if (oldMap.get(e) == tag) {
                     newMap.without(e);
                 }
             }
             newv = (PersistentHashMap) newMap.persistent();
         } while (!m.compareAndSet(oldMap, newv));
-        listeners.forEach(l -> l.endLockout(tagsAndIds, latch));
-        latch.countDown();
+        try {
+            listeners.forEach(l -> l.endLockout(tagsAndIds, tag));
+        } finally {
+            tag.getLatch().countDown();
+        }
     }
 
     private static boolean awaitMarker(PersistentHashMap lockouts, Object obj) throws InterruptedException {
-        CountDownLatch latch = (CountDownLatch) lockouts.get(obj);
-        if (latch != null) {
-            latch.await();
+        LockoutTag lockoutTag = (LockoutTag) lockouts.get(obj);
+        if (lockoutTag != null) {
+            lockoutTag.getLatch().await();
             return true;
         } else {
             return false;
@@ -110,8 +110,8 @@ public class LockoutMap {
     }
 
     public interface Listener {
-        void startLockout(Iterable<Object> tagsAndIds, CountDownLatch latch);
+        void startLockout(Iterable<Object> tagsAndIds, LockoutTag latch);
 
-        void endLockout(Iterable<Object> tagsAndIds, CountDownLatch latch);
+        void endLockout(Iterable<Object> tagsAndIds, LockoutTag latch);
     }
 }

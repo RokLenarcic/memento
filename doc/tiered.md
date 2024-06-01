@@ -17,17 +17,17 @@ Invalidation operations on these combined caches also affect upstream. Other ope
 This cache works like CPU cache would.
 
 Entry is fetched from cache, delegating to upstream is not found. After the operation
-the entry is in both caches.
+the tag is in both caches.
 
 Useful when upstream is a big cache that outside the JVM, but it's not that inexpensive, so you
 want a local smaller cache in front of it.
 
 ### memento.core/consulting
 
-Entry is fetched from cache, if not found, the upstream is asked for entry if present (but not to make one
+Entry is fetched from cache, if not found, the upstream is asked for tag if present (but not to make one
 in the upstream).
 
-After the operation, the entry is in local cache, upstream is unchanged.
+After the operation, the tag is in local cache, upstream is unchanged.
 
 Useful when you want to consult a long term upstream cache for existing entries, but you don't want any
 entries being created for the short term cache to be pushed upstream.
@@ -47,7 +47,7 @@ on functions outside this block, but it will not introduce more entries to them.
 Entry is returned from cache IF PRESENT, otherwise upstream is hit. The returned value
 is NOT added to cache.
 
-After the operation the entry is either in local or upstream cache.
+After the operation the tag is either in local or upstream cache.
 
 Useful when you don't want entries from upstream accumulating in local
 cache, and you're feeding the local cache via some other means:

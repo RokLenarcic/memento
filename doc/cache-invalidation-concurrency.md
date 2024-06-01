@@ -3,7 +3,7 @@
 ## 1. Accessing a cached value while a bulk invalidation is in progress
 
 You might have a cached function that calls another cached function and they operate on same data, but the invalidation
-is not atomic so the top function is invalidated and it immediately reconstructs an entry with invalid, but still
+is not atomic so the top function is invalidated and it immediately reconstructs an tag with invalid, but still
 not removed, data from the other cached function.
 
 This applies to tagged invalidation. 

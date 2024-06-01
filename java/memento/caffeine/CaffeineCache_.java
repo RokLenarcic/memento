@@ -72,8 +72,10 @@ public class CaffeineCache_ {
                     return EntryMeta.unwrap(result);
                 } catch (Throwable t) {
                     delegate.asMap().remove(key, p);
-                    p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
-                    throw t;
+                    if (!p.isInvalid()) {
+                        p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
+                        throw t;
+                    }
                 } finally {
                     p.releaseResult();
                     loads.remove(p);

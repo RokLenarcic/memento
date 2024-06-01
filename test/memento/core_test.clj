@@ -365,18 +365,21 @@
 (deftest invalidation-during-load-test
   (testing "bulk invalidation test"
     (let [a (atom 0)
-          c (m/memo (fn [] (Thread/sleep 1000)
+          c (m/memo (fn [] (Thread/sleep 300)
                       (m/with-tag-id (swap! a inc) :xx 1))
                     (assoc inf mc/tags :xx))]
-      (future (Thread/sleep 100)
+      (future (Thread/sleep 15)
               (m/memo-clear-tag! :xx 1))
       (is (= 2 (c)))))
   (testing "Invalidation during load test"
     (let [a (atom 0)
-          c (m/memo (fn [] (Thread/sleep 300) (swap! a inc)) inf)]
+          after (atom 0)
+          c (m/memo (fn [] (let [r (swap! a inc)]
+                             (Thread/sleep 300)
+                             [r (swap! after inc)])) inf)]
       (future (Thread/sleep 10)
               (m/memo-clear! c))
-      (is (= 2 (c))))))
+      (is (= [2 1] (c))))))
 
 (deftest ret-ex-fn-test
   (testing "returns transformed-exception"

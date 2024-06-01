@@ -12,11 +12,6 @@ Version 1.0 represents a switch from Guava to Caffeine, which is a faster cachin
 benefit of not pulling in the whole Guava artefact which is more that just that Cache. The Guava Cache type
 key and the config namespace are deprecated and will be removed in the future.
 
-## Caffeine version notice
-
-This library uses Caffeine 2.9.3 as dependency as that version is Java 8 compatible. If you are using
-Java 11 or better you should use it with Caffeine 3.x.
-
 ## Motivation
 
 Why is there a need for another caching library?
@@ -125,12 +120,12 @@ specification.
 #### mc/key-fn, mc/key-fn*
 
 Specify a function that will transform the function arg list into the final cache key. Used 
-to drop function arguments that shouldn't factor into cache entry equality.
+to drop function arguments that shouldn't factor into cache tag equality.
 
 The `key-fn` receives a sequence of arguments, `key-fn*` receives multiple arguments as if it
 was the function itself.
 
-See: [Changing the key for cached entry](doc/key-fn.md)
+See: [Changing the key for cached tag](doc/key-fn.md)
 
 #### mc/ret-fn
 
@@ -238,7 +233,7 @@ caches below. Here's an example of using tags when caching and scoped caching
 (m/memo #'get-person-by-id [:person :request] cache/inf)
 
 ; remove cache entries from every cache tagged :person globally, where the
-; entry is tagged with :person 1
+; tag is tagged with :person 1
 (m/memo-clear-tag! :person 1)
 
 (m/with-caches :request (constantly (m/create cache/inf))
@@ -250,7 +245,7 @@ caches below. Here's an example of using tags when caching and scoped caching
 ## Variable expiry
 
 Instead of setting a fixed duration of validity for entries in a cache, it is possible
-to set these duration on per-entry or per-mount point basis.
+to set these duration on per-tag or per-mount point basis.
 
 Note that for Caffeine cache variable expiry caching is somewhat slower.
 
@@ -281,7 +276,7 @@ This is a very powerful feature, [read more here.](doc/tags.md)
 
 Cache only has a single ongoing load for a key going at any one time. For Caffeine cache, if a key is invalidated
 during the load, the load is repeated. This is the only way you can get multiple function invocations happen for a single
-cached function call.
+cached function call. When an tag is invalidated while it's being loaded, the Thread that loads it will be interrupted.
 
 ## Namespace scan
 

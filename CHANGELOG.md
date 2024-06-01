@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.61
+
+- when an tag is invalidated during load, the loading thread will be interrupted
+
 ## 1.3.60
 
 - improved variable expiry

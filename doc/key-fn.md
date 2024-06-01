@@ -1,7 +1,7 @@
-# Changing the key for cached entry
+# Changing the key for cached tag
 
 Add `:memento.core/key-fn` to cache or mount config (or use `mc/key-fn` value) to specify a function with which to manipulate
-the key cache will use for the entry. 
+the key cache will use for the tag. 
 
 ```clojure
 (defn get-person-by-id

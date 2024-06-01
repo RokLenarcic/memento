@@ -4,6 +4,8 @@ Performance is not a dedicated goal of this library, but here's some numbers:
 
 ![Performance graph](performance.png)
 
+![Mem use graph](mem-use.png)
+
 ```clojure
 ; memoize is not thread-safe and doesn't have any features
 (def f-memoize (memoize identity))

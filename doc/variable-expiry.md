@@ -1,7 +1,7 @@
 ## Variable expiry
 
 A configuration key `:memento.core/expiry` allows that you specify expiry on per
-entry basis. The value needs to be an instance of `memento.caffeine.Expiry` interface.
+tag basis. The value needs to be an instance of `memento.caffeine.Expiry` interface.
 
 If functions return nil, then the value of corresponding setting `ttl` or `fade` is used
 instead.

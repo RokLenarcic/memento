@@ -29,7 +29,7 @@ public class CacheKey {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         CacheKey cacheKey = (CacheKey) o;
-        return Objects.equals(id, cacheKey.id) && Util.equiv(args, cacheKey.args);
+        return _hq == cacheKey._hq && Objects.equals(id, cacheKey.id) && Util.equiv(args, cacheKey.args);
     }
 
     @Override
