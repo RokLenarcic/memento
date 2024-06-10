@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.62
+
+- remove unneeded operation when adding entries into the map
+
 ## 1.4.61
 
 - when an tag is invalidated during load, the loading thread will be interrupted

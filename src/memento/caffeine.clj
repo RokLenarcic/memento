@@ -72,9 +72,6 @@
   (let [cv (if (instance? SpecialPromise v)
              (.getNow ^SpecialPromise v)
              v)]
-    (if (instance? SpecialPromise v)
-      (let [cv (.getNow ^SpecialPromise v)]
-        ()))
     (if (identical? cv b/absent)
       transient-m
       (assoc! transient-m k (xf cv)))))
