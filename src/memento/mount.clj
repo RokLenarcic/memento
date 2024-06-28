@@ -24,9 +24,9 @@
   [index ref]
   (reduce-kv #(assoc %1 %2 (disj %3 ref)) {} index))
 
-(deftype ReloadGuard [cache-mount]
-  Object
-  (finalize [this]
+(deftype TagsUnloader [cache-mount]
+  Runnable
+  (run [this]
     (swap! tags dissoc-cache-tags cache-mount)
     (alter-var-root #'*caches* dissoc cache-mount)
     nil))
@@ -103,7 +103,7 @@
   (if (var? fn-or-var)
     (let [mount-conf (-> mount-conf
                          reify-mount-conf
-                         (update config/id #(or % (str fn-or-var))))]
+                         (update config/id #(or % (.intern (str fn-or-var)))))]
       (alter-var-root fn-or-var bind mount-conf cache))
     (let [mount-conf (reify-mount-conf mount-conf)
           stacking (if (instance? CachedFn fn-or-var) (config/bind-mode mount-conf :new) :none)
@@ -112,7 +112,8 @@
                                      :keep (.getMp ^CachedFn fn-or-var)
                                      (:none :stack) (create-mount fn-or-var cache mount-conf))
           reload-guard (when (and config/reload-guards? (config/tags mount-conf) (not= :keep stacking))
-                         (ReloadGuard. cache-mount))
+                         (doto (Object.)
+                           (IMountPoint/register (->TagsUnloader cache-mount))))
           f (case stacking
               :keep fn-or-var
               (:new :stack) (CachedFn. reload-guard cache-mount (meta fn-or-var) (.getOriginalFn ^CachedFn fn-or-var))

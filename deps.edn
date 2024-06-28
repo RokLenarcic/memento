@@ -3,7 +3,7 @@
                  :fn compile-java
                  :ensure "target/classes"}
 
- :deps {com.github.ben-manes.caffeine/caffeine {:mvn/version "2.9.3"}}
+ :deps {com.github.ben-manes.caffeine/caffeine {:mvn/version "3.1.8"}}
 
  :aliases {:dev {:extra-paths ["test"]
                  :extra-deps {org.clojure/core.memoize {:mvn/version "1.1.266"}

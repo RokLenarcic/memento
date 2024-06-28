@@ -4,7 +4,7 @@
             [org.corfield.build :as bb]))
 
 (def lib 'org.clojars.roklenarcic/memento)
-(def version (format "1.4.%s" (b/git-count-revs nil)))
+(def version (format "2.0.%s" (b/git-count-revs nil)))
 (def java-src-dir "java")
 
 (defn add-defaults [opts]
@@ -13,7 +13,7 @@
 (defn compile-java [{:keys [basis class-dir target] :as opts}]
   (-> opts
       add-defaults
-      (assoc :javac-opts ["-source" "8" "-target" "8"]
+      (assoc :javac-opts ["-source" "11" "-target" "11"]
              :basis     (bb/default-basis basis)
              :src-dirs [java-src-dir]
              :class-dir (bb/default-class-dir class-dir target))

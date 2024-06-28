@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.xx
+
+- upgrade from Caffeine 2 to Caffeine 3. Min Java changed from 8 to 11.
+
 ## 1.4.62
 
 - remove unneeded operation when adding entries into the map

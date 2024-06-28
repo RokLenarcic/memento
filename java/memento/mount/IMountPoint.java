@@ -5,6 +5,8 @@ import clojure.lang.ISeq;
 import memento.base.ICache;
 import memento.base.Segment;
 
+import java.lang.ref.Cleaner;
+
 /**
  * Interface for cache mount
  */
@@ -85,4 +87,10 @@ public interface IMountPoint {
      * @return
      */
     ICache addEntries(IPersistentMap argsToVals);
+
+    Cleaner cleaner = Cleaner.create();
+
+    static void register(Object guardObject, Runnable cleanupAction) {
+        cleaner.register(guardObject, cleanupAction);
+    }
 }

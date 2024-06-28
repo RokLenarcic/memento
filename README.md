@@ -6,6 +6,10 @@ A library for function memoization with scoped caches and tagged eviction capabi
 
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.roklenarcic/memento.svg)](https://clojars.org/org.clojars.roklenarcic/memento)
 
+## Version 2.0 breaking changes
+
+Version 2 moves from Java 8 to Java 11 as minimum JVM version. Caffeine version is 3 instead of 2.
+
 ## Version 1.0 breaking changes
 
 Version 1.0 represents a switch from Guava to Caffeine, which is a faster caching library, with added
