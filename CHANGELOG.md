@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.xx
+## 2.0.63
 
 - upgrade from Caffeine 2 to Caffeine 3. Min Java changed from 8 to 11.
 
