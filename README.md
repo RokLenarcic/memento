@@ -62,7 +62,7 @@ map to be provided before the argument list, or you can add meta to the symbol d
 You can add cache to a function object (in `clojure.core/memoize` fashion):
 
 ```clojure
-(m/memo (fn [] ...) {mc/cache mc/caffeine})
+(m/memo (fn [] ...) {mc/type mc/caffeine})
 ```
 
 ### Other ways to attach Cache to a function

@@ -14,7 +14,9 @@ Performance is not a dedicated goal of this library, but here's some numbers:
 ; memento
 (def f-memento (m/memo identity {::m/type ::m/caffeine}))
 ; memento caffeine variable expiry
-(def f-memento-var (m/memo identity {::m/type ::m/caffeine ::m/expiry memento.config/meta-expiry}))
+(def f-memento-var (m/memo identity {::m/type ::m/caffeine ::m/expiry memento.caffeine.config/meta-expiry}))
+; memento light caffeine
+(def f-light-memento (m/memo identity {::m/type ::m/light-caffeine}))
 ```
 ## Memoize
 
@@ -169,51 +171,39 @@ Found 4 outliers in 60 samples (6,6667 %)
 ```text
 (cc/bench (f-memento-var 1))
 
-Evaluation count : 290239740 in 60 samples of 4837329 calls.
-             Execution time mean : 202,002034 ns
-    Execution time std-deviation : 5,615344 ns
-   Execution time lower quantile : 193,672444 ns ( 2,5%)
-   Execution time upper quantile : 209,577108 ns (97,5%)
-                   Overhead used : 1,990725 ns
+Evaluation count : 453412980 in 60 samples of 7556883 calls.
+             Execution time mean : 132,501700 ns
+    Execution time std-deviation : 2,015071 ns
+   Execution time lower quantile : 130,326931 ns ( 2,5%)
+   Execution time upper quantile : 134,890796 ns (97,5%)
+                   Overhead used : 1,978672 ns
 
-Found 1 outliers in 60 samples (1,6667 %)
-	low-severe	 1 (1,6667 %)
- Variance from outliers : 14,2418 % Variance is moderately inflated by outliers
 ```
 
-#### 1M misses (829 ns per miss)
+#### 1M misses (526 ns per miss)
 
 ```text
-(cc/bench (let [f-memento-var (m/memo identity {::m/type ::m/caffeine ::m/expiry memento.config/meta-expiry})]
+(cc/bench (let [f-memento-var (m/memo identity {::m/type ::m/caffeine ::m/expiry memento.caffeine.config/meta-expiry})]
             (reduce #(f-memento-var %2) (range 1000000))))
 Evaluation count : 120 in 60 samples of 2 calls.
-             Execution time mean : 829,952232 ms
-    Execution time std-deviation : 162,440590 ms
-   Execution time lower quantile : 660,775895 ms ( 2,5%)
-   Execution time upper quantile : 1,141234 sec (97,5%)
-                   Overhead used : 1,990725 ns
+             Execution time mean : 526,197766 ms
+    Execution time std-deviation : 59,110910 ms
+   Execution time lower quantile : 426,811124 ms ( 2,5%)
+   Execution time upper quantile : 644,451645 ms (97,5%)
+                   Overhead used : 1,978672 ns
 
-Found 1 outliers in 60 samples (1,6667 %)
-	low-severe	 1 (1,6667 %)
- Variance from outliers : 91,0954 % Variance is severely inflated by outliers
 ```
 
 #### 1M misses for size 100 LRU cache (387 ns per miss)
 
 ```text
-(cc/bench (let [f-memento-var (m/memo identity {::m/size< 100 ::m/type ::m/caffeine ::m/expiry memento.config/meta-expiry})]
+(cc/bench (let [f-memento-var (m/memo identity {::m/size< 100 ::m/type ::m/caffeine ::m/expiry memento.caffeine.config/meta-expiry})]
             (reduce #(f-memento-var %2) (range 1000000))))
 Evaluation count : 180 in 60 samples of 3 calls.
-             Execution time mean : 387,610745 ms
-    Execution time std-deviation : 15,902067 ms
-   Execution time lower quantile : 351,348179 ms ( 2,5%)
-   Execution time upper quantile : 402,749570 ms (97,5%)
-                   Overhead used : 1,990725 ns
-
-Found 11 outliers in 60 samples (18,3333 %)
-	low-severe	 6 (10,0000 %)
-	low-mild	 4 (6,6667 %)
-	high-mild	 1 (1,6667 %)
- Variance from outliers : 27,0913 % Variance is moderately inflated by outliers
+             Execution time mean : 423,554590 ms
+    Execution time std-deviation : 7,825220 ms
+   Execution time lower quantile : 414,372683 ms ( 2,5%)
+   Execution time upper quantile : 435,451863 ms (97,5%)
+                   Overhead used : 1,978672 ns
 
 ```
