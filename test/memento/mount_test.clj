@@ -64,7 +64,7 @@
   [x]
   (if (<= x 1) 1 (+ (fib (dec x)) (fib (dec (dec x))))))
 
-(core/memo #'fib {mc/cache {mc/tags [:test]}})
+(core/memo #'fib {mc/tags [:test]})
 
 (deftest recursive-call-test
   (testing "Call same cache recursively."

@@ -54,6 +54,7 @@
   [conf]
   (if (instance? ICache conf)
     conf
-    (if config/enabled?
-      (new-cache (merge {config/type config/*default-type*} conf))
-      no-cache)))
+    (cond
+      (config/cache conf) (throw (ex-info "You are passing meta key :memento.core/cache into cache constructor. Did you mean to specify :memento.core/type?" {}))
+      config/enabled? (new-cache (merge {config/type config/*default-type*} conf))
+      :else no-cache)))
