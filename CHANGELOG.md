@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.65
+
+- added a check that will throw an error if encountering mc/cache key in wrong place, cache configuration
+
 ## 2.0.63
 
 - upgrade from Caffeine 2 to Caffeine 3. Min Java changed from 8 to 11.
