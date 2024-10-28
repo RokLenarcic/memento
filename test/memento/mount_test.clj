@@ -83,3 +83,30 @@
       (core/with-caches
         :test (constantly c)
         (is (= 10946 (fib 20)))))))
+
+(defmulti odd-even (fn [x] (odd? x)))
+(defonce orig-multi-fn odd-even)
+
+(core/memo #'odd-even {mc/type mc/caffeine})
+
+(deftest multi-method-test
+  (let [access-count (atom 0)]
+    (testing "Allows multimethod utilites"
+      (defmethod odd-even true [x]
+        (swap! access-count inc)
+        (println x " is odd"))
+      (remove-all-methods odd-even)
+      (defmethod odd-even false [x]
+        (swap! access-count inc)
+        (str x " is even"))
+      (is (thrown? Exception (odd-even 1)))
+      (is (= "2 is even" (odd-even 2)) )
+      (is (some? (get-method odd-even false)))
+      (is (nil? (get-method odd-even true))))
+    (testing "Is cached"
+      (odd-even 2)
+      (odd-even 2)
+      (odd-even 2)
+      (is (= 1 @access-count))
+      (is (= orig-multi-fn (core/memo-unwrap odd-even)))
+      (is (= true (core/memoized? odd-even))))))

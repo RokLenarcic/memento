@@ -7,8 +7,8 @@
             [memento.mount :as mount])
   (:import (java.util IdentityHashMap)
            (java.util.function BiFunction)
-           (memento.base EntryMeta ICache LockoutMap LockoutTag)
-           (memento.mount CachedFn IMountPoint)))
+           (memento.base EntryMeta ICache LockoutTag)
+           (memento.mount Cached IMountPoint)))
 
 (defn do-not-cache
   "Wrap a function result value in a wrapper that tells the Cache not to
@@ -94,11 +94,11 @@
 
 (defn memoized?
   "Returns true if function is memoized."
-  [f] (instance? CachedFn f))
+  [f] (instance? Cached f))
 
 (defn memo-unwrap
   "Takes a function and returns an uncached function."
-  [f] (if (instance? CachedFn f) (.getOriginalFn ^CachedFn f) f))
+  [f] (if (instance? Cached f) (.getOriginalFn ^Cached f) f))
 
 (defn memo-clear-cache!
   "Invalidate all entries in Cache. Returns cache."
@@ -294,7 +294,7 @@
          f (first cache-call)
          _ (assert (symbol? f))]
      `(if-let [mnt# (mount/mount-point ~(first cache-call))]
-        (let [mnt# (if (instance? CachedFn mnt#) (.getMp mnt#) mnt#)
+        (let [mnt# (if (instance? Cached mnt#) (.getMp mnt#) mnt#)
               cached# (.ifCached mnt# '~(next cache-call))]
           (if (= cached# base/absent)
             ~else

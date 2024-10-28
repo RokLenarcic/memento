@@ -4,9 +4,9 @@ import clojure.lang.*;
 import memento.base.ICache;
 import memento.base.Segment;
 
-public class CachedFn extends AFunction implements IMountPoint, Cached {
+public class CachedMultiFn extends MultiFn implements IMountPoint, Cached, IObj {
     private final Object reloadGuard;
-    private final IFn originalFn;
+    private final MultiFn originalFn;
     private final Segment segment;
 
     @Override
@@ -59,12 +59,15 @@ public class CachedFn extends AFunction implements IMountPoint, Cached {
         return mp.addEntries(argsToVals);
     }
 
+    private final String name;
     private final IMountPoint mp;
     private final IPersistentMap meta;
 
-    public CachedFn(Object reloadGuard, IMountPoint mp, IPersistentMap meta, IFn originalFn) {
+    public CachedMultiFn(String name, Object reloadGuard, IMountPoint mp, IPersistentMap meta, MultiFn originalFn) {
+        super(name, originalFn.dispatchFn, originalFn.defaultDispatchVal, originalFn.hierarchy);
         this.reloadGuard = reloadGuard;
         this.mp = mp;
+        this.name = name;
         this.meta = meta;
         this.originalFn = originalFn;
         this.segment = mp.segment();
@@ -77,7 +80,7 @@ public class CachedFn extends AFunction implements IMountPoint, Cached {
 
     @Override
     public IObj withMeta(IPersistentMap meta) {
-        return new CachedFn(reloadGuard, mp, meta, originalFn);
+        return new CachedMultiFn(name, reloadGuard, mp, meta, originalFn);
     }
 
     @Override
@@ -237,7 +240,7 @@ public class CachedFn extends AFunction implements IMountPoint, Cached {
 
     @Override
     public String toString() {
-        return "CachedFn{" +
+        return "CachedMultiFn{" +
                 "originalFn=" + originalFn +
                 ", segment=" + segment +
                 ", mp=" + mp +
@@ -247,5 +250,44 @@ public class CachedFn extends AFunction implements IMountPoint, Cached {
 
     public Segment getSegment() {
         return segment;
+    }
+
+    @Override
+    public MultiFn addMethod(Object dispatchVal, IFn method) {
+        originalFn.addMethod(dispatchVal, method);
+        return this;
+    }
+
+    @Override
+    public IFn getMethod(Object dispatchVal) {
+        return originalFn.getMethod(dispatchVal);
+    }
+
+    @Override
+    public IPersistentMap getMethodTable() {
+        return originalFn == null ? PersistentHashMap.EMPTY : originalFn.getMethodTable();
+    }
+
+    @Override
+    public IPersistentMap getPreferTable() {
+        return originalFn.getPreferTable();
+    }
+
+    @Override
+    public MultiFn preferMethod(Object dispatchValX, Object dispatchValY) {
+        originalFn.preferMethod(dispatchValX, dispatchValY);
+        return this;
+    }
+
+    @Override
+    public MultiFn removeMethod(Object dispatchVal) {
+        originalFn.removeMethod(dispatchVal);
+        return this;
+    }
+
+    @Override
+    public MultiFn reset() {
+        originalFn.reset();
+        return this;
     }
 }

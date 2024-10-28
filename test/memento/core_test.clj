@@ -2,8 +2,7 @@
   (:require [clojure.test :refer :all]
             [memento.core :as m :refer :all]
             [memento.config :as mc]
-            [memento.caffeine.config :as mcc]
-            )
+            [memento.caffeine.config :as mcc])
   (:import (java.io IOException)
            (memento.base EntryMeta ICache)
            (memento.caffeine Expiry)

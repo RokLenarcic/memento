@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.68
+
+- correctly wraps MultiFn
+
 ## 2.0.65
 
 - added a check that will throw an error if encountering mc/cache key in wrong place, cache configuration

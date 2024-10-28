@@ -22,7 +22,7 @@ Here's an example:
 (m/memo #'get-user-by-id {mc/type mc/caffeine mc/expiry ttl-for-person})
 ```
 
-An implementation `memento.config/meta-expiry` is provided. That reads meta of returned objects
+An implementation `memento.caffeine.config/meta-expiry` is provided. That reads meta of returned objects
 for keys `memento.core/ttl` and `memento.core/fade`.
 
 ```clojure

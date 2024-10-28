@@ -4,9 +4,9 @@
   {:author "Rok Lenarčič"}
   (:require [memento.base :as base]
             [memento.config :as config])
-  (:import (clojure.lang AFn ISeq)
+  (:import (clojure.lang AFn ISeq MultiFn)
            (memento.base ICache Segment)
-           (memento.mount CachedFn IMountPoint)))
+           (memento.mount Cached CachedFn CachedMultiFn IMountPoint)))
 
 (def ^:dynamic *caches* "Contains map of mount point to cache instance" {})
 (def tags "Map tag to mount-point" (atom {}))
@@ -106,19 +106,22 @@
                          (update config/id #(or % (.intern (str fn-or-var)))))]
       (alter-var-root fn-or-var bind mount-conf cache))
     (let [mount-conf (reify-mount-conf mount-conf)
-          stacking (if (instance? CachedFn fn-or-var) (config/bind-mode mount-conf :new) :none)
+          constructor (if (instance? MultiFn fn-or-var)
+                        #(CachedMultiFn. (str (config/id mount-conf)) %1 %2 %3 %4)
+                        #(CachedFn. %1 %2 %3 %4))
+          stacking (if (instance? Cached fn-or-var) (config/bind-mode mount-conf :new) :none)
           ^IMountPoint cache-mount (case stacking
-                                     :new (create-mount (.getOriginalFn ^CachedFn fn-or-var) cache mount-conf)
-                                     :keep (.getMp ^CachedFn fn-or-var)
+                                     :new (create-mount (.getOriginalFn ^Cached fn-or-var) cache mount-conf)
+                                     :keep (.getMp ^Cached fn-or-var)
                                      (:none :stack) (create-mount fn-or-var cache mount-conf))
           reload-guard (when (and config/reload-guards? (config/tags mount-conf) (not= :keep stacking))
                          (doto (Object.)
                            (IMountPoint/register (->TagsUnloader cache-mount))))
           f (case stacking
               :keep fn-or-var
-              (:new :stack) (CachedFn. reload-guard cache-mount (meta fn-or-var) (.getOriginalFn ^CachedFn fn-or-var))
-              :none (CachedFn. reload-guard cache-mount (meta fn-or-var) fn-or-var))]
-      (.addEntries (.getMp ^CachedFn f) (config/seed mount-conf {}))
+              (:new :stack) (constructor reload-guard cache-mount (meta fn-or-var) (.getOriginalFn ^Cached fn-or-var))
+              :none (constructor reload-guard cache-mount (meta fn-or-var) fn-or-var))]
+      (.addEntries (.getMp ^Cached f) (config/seed mount-conf {}))
       f)))
 
 (defn mount-point
