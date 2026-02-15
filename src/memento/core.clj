@@ -71,9 +71,13 @@
                (memo fn-or-var cache))))
   ([fn-or-var conf]
    (if (map? conf)
-     (memo fn-or-var
-           (select-keys conf mount/configuration-props)
-           (apply dissoc conf mount/configuration-props))
+     (let [{mount-conf true
+            cache-conf false}
+           (reduce-kv (fn [acc k v]
+                        (assoc-in acc [(isa? k ::mount/conf) k] v))
+                      {}
+                      conf)]
+       (memo fn-or-var mount-conf cache-conf))
      (memo fn-or-var conf {})))
   ([fn-or-var mount-conf cache-conf]
    (->> cache-conf

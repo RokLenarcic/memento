@@ -10,7 +10,6 @@ import java.util.Objects;
 // - key-fn to apply for keys from this segment
 // - segment ID, use this rather than f to separate segments in cache
 // - conf is mount point (or segment) conf
-// - expiry is Segment specific expiry
 public class Segment {
     private final IFn f;
     private final IFn keyFn;

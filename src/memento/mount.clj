@@ -11,8 +11,14 @@
 (def ^:dynamic *caches* "Contains map of mount point to cache instance" {})
 (def tags "Map tag to mount-point" (atom {}))
 
-(def configuration-props [config/key-fn config/ret-fn config/seed config/tags
-                          config/evt-fn config/id config/key-fn* config/ret-ex-fn])
+(derive config/key-fn ::conf)
+(derive config/ret-fn ::conf)
+(derive config/seed ::conf)
+(derive config/tags ::conf)
+(derive config/evt-fn ::conf)
+(derive config/id ::conf)
+(derive config/key-fn* ::conf)
+(derive config/ret-ex-fn ::conf)
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"
