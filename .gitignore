@@ -5,3 +5,5 @@
 *.iml
 *.asc
 target/
+.lsp/.cache
+.clj-kondo/.cache

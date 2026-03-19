@@ -58,8 +58,8 @@
   :memento.core/key-fn)
 
 (def key-fn*
-  "Function bind setting, works same as key-fn but the provided function will receive all
-  arguments that the original function does. If both key-fn and key-fn* are provided, key-fn is used."
+  "Function bind setting, works same as key-fn but the function will be called with arguments of the
+  cached call, e.g. (fn [arg1 arg2 arg3] key) rather than a seq of arguments. If both key-fn and key-fn* are provided, key-fn is used."
   :memento.core/key-fn*)
 
 (def ret-fn

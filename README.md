@@ -1,346 +1,334 @@
 # Memento
 
-A library for function memoization with scoped caches and tagged eviction capabilities.
-
-## Dependency
+A Clojure memoization library with **scoped caching** and **smart invalidation**.
 
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.roklenarcic/memento.svg)](https://clojars.org/org.clojars.roklenarcic/memento)
 
-## Version 2.0 breaking changes
+## Why Memento?
 
-Version 2 moves from Java 8 to Java 11 as minimum JVM version. Caffeine version is 3 instead of 2.
+`clojure.core/memoize` and `clojure.core.memoize` provide basic caching, but real applications need:
 
-## Version 1.0 breaking changes
+- **Scoped caching** - fresh cache per request/job/test, discarded when done (scopes can nest)
+- **Tag-based invalidation** - clear all cached data for an entity with one call  
+- **N+1 query prevention** - populate single-item caches from bulk loads
+- **[Variable per-entry expiry](doc/advanced.md#variable-expiry)** - set TTL based on the cached value itself
+- **[2-3x better performance](doc/performance.md)** - backed by Caffeine
 
-Version 1.0 represents a switch from Guava to Caffeine, which is a faster caching library, with added
-benefit of not pulling in the whole Guava artefact which is more that just that Cache. The Guava Cache type
-key and the config namespace are deprecated and will be removed in the future.
+### Scoped Caching
 
-## Motivation
+Traditional caching strategies struggle with API/web requests:
 
-Why is there a need for another caching library?
+- **TTL-based caching**: What timeout do you pick? Too short and you get no benefit. Too long and users see stale data. There's rarely a "right" answer because data can change at any moment.
+- **Size-based caching**: Prevents memory issues but doesn't help with staleness. A cached value could be seconds or hours old.
 
-- request scoped caching (and other scoped caching)
-- eviction by secondary index
-- disabling cache for specific function returns
-- tiered caching
-- size based eviction that puts limits around more than one function at the time
-- cache events
+What you actually want for request handling:
+- Start fresh for each request (no stale data from previous requests)
+- Cache within the request (avoid repeated DB calls in the same request)
+- Discard when the request ends (no memory leaks)
 
-## Performance
+Memento's `with-caches` makes this trivial. While request handling is the most common use case, scopes work for any bounded context - background jobs, batch processing, test fixtures - and can be nested.
 
-- [**Performance**](doc/performance.md)
+### Smart Invalidation
 
-## Adding cache to a function
-
-**With require `[memento.core :as m][memento.config :as mc]`:**
-
-Define a function + create new cache + attach cache to a function:
+When a user updates their profile, you need to invalidate all cached data about that user - across multiple functions. Memento's tag-based invalidation lets you do this with a single call:
 
 ```clojure
-(m/defmemo my-function
-  {::m/cache {mc/type mc/caffeine}}
-  [x]
-  (* 2 x))
+(m/memo-clear-tag! :user user-id)  ; Clears user 123's data from ALL tagged caches
 ```
 
-### **The key parts here**:
-- `defmemo` works just like `defn` but wraps the function in a cache 
-- specify the cache configuration via `:memento.core/cache` keyword in function meta
+### N+1 Query Prevention
 
-Quick reminder, there are two ways to provide metadata when defining functions: `defn` allows a meta
-map to be provided before the argument list, or you can add meta to the symbol directly as supported by the reader:
+You have single-item cached functions like `get-user-email`. Elsewhere you load a list of 100 users. Without coordination, calling `get-user-email` for each user means 100 database queries - for data you already have.
+
+Memento's event system lets bulk loaders populate single-item caches:
 
 ```clojure
-(m/defmemo ^{::m/cache {mc/type mc/caffeine}} my-function
-  [x]
-  (* 2 x))
+;; After loading users in bulk, fire events to populate individual caches
+(doseq [user users]
+  (m/fire-event! :user [:user-seen user]))
 ```
 
-### Caching an anonymous function
+See [Events documentation](doc/advanced.md#events-n1-query-prevention) for the full pattern.
 
-You can add cache to a function object (in `clojure.core/memoize` fashion):
+## Installation
 
 ```clojure
-(m/memo (fn [] ...) {mc/type mc/caffeine})
+;; deps.edn
+org.clojars.roklenarcic/memento {:mvn/version "2.0.68"}
+
+;; Leiningen
+[org.clojars.roklenarcic/memento "2.0.68"]
 ```
 
-### Other ways to attach Cache to a function
+Requires Java 11+.
 
-[Caches and memoize calls](doc/major.md)
-
-## Cache conf(iguration)
-
-See above: `{mc/type mc/caffeine}`
-
-The cache conf is an open map of namespaced keywords such as `:memento.core/type`, various cache implementations can
-use implementation specific config keywords.
-
-Learning all the keywords and what they do can be hard. To assist you 
-there are special conf namespaces provided where conf keywords are defined as vars with docs,
-so it's easy so you to see which configuration keys are available and what their function is. It also helps
-prevent bugs from typing errors.
-
-The core properties are defined in `[memento.config :as mc]` namespace. Caffeine specific properties are defined
-in `[memento.caffeine.config :as mcc]`. 
-
-Here's a couple of equal ways of writing out you cache configuration meta:
+## Quick Start
 
 ```clojure
-; the longest
-{:memento.core/cache {:memento.core/type :memento.core/caffeine}}
-; using alias
-{::m/cache {::m/type ::m/caffeine}}
-; using memento.config vars - recommended
-{mc/cache {mc/type mc/caffeine}}
+(require '[memento.core :as m]
+         '[memento.config :as mc])
+
+;; Basic memoization - wrap your function with a cache
+(def get-user
+  (m/memo (fn [user-id]
+            (println "Fetching user" user-id)
+            {:id user-id :name "Alice"})
+          {mc/type mc/caffeine}))  ; Use Caffeine cache
+
+(get-user 1)  ; prints "Fetching user 1", returns {:id 1 :name "Alice"}
+(get-user 1)  ; returns cached result, no print
 ```
 
-### Core conf
+### Using `defmemo`
 
-The core configuration properties:
-
-#### mc/type
-
-Cache implementation type, e.g. caffeine, redis, see the implementation library docs. **Make sure
-you load the implementation namespace at some point!**. Caffeine namespace is loaded automatically
-when memento.core is loaded.
-
-#### mc/size<
-
-Size limit expressed in number of entries or total weight if implementation supports weighted cache entries
-
-#### mc/ttl
-
-Entry is invalid after this amount of time has passed since its creation
-
-It's either a number (of seconds), a pair describing duration e.g. `[10 :m]` for 10 minutes,
-see `memento.config/timeunits` for timeunits.
-
-#### mc/fade
-
-Entry is invalid after this amount of time has passed since last access, see `mc/ttl` for duration
-specification.
-
-#### mc/key-fn, mc/key-fn*
-
-Specify a function that will transform the function arg list into the final cache key. Used 
-to drop function arguments that shouldn't factor into cache tag equality.
-
-The `key-fn` receives a sequence of arguments, `key-fn*` receives multiple arguments as if it
-was the function itself.
-
-See: [Changing the key for cached tag](doc/key-fn.md)
-
-#### mc/ret-fn
-
-A function that is called on every cached function return value. Used for general transformations
-of return values.
-
-#### mc/ret-ex-fn
-
-A function that is called on every thrown Throwable. Used for general transformations
-of thrown exceptions values.
-
-#### mc/seed
-
-Initial entries to load in the cache.
-
-#### mc/initial-capacity
-
-Cache capacity hint to implementation.
-
-## Conf is a value (map)
-
-Cache conf can get quite involved:
+`defmemo` works just like `defn` - the map is standard function metadata:
 
 ```clojure
-(ns memento.tryout
-  (:require [memento.core :as m]
-    ; general cache conf keys
-            [memento.config :as mc]
-    ; caffeine specific cache conf keys
-            [memento.caffeine.config :as mcc]))
+(require '[memento.core :as m]
+         '[memento.config :as mc])
 
-(def my-weird-cache
-  "Conf for caffeine cache that caches up to 20 seconds and up to 30 entries, uses weak
-  references and prints when keys get evicted."
+(m/defmemo get-user
+  "Fetches user from database."
+  {mc/type mc/caffeine}
+  [user-id]
+  (db/fetch-user user-id))
+```
+
+### With Size and Time Limits
+
+```clojure
+(m/defmemo get-user
+  "Fetches user, cached for 5 minutes, max 1000 entries."
   {mc/type mc/caffeine
-   mc/size< 30
-   mc/ttl 20
-   mcc/weak-values true
-   mcc/removal-listener #(println (apply format "Function %s key %s, value %s got evicted because of %s" %&))})
-
-(m/defmemo my-function
-  {::m/cache my-weird-cache}
-  [x] (* 2 x))
+   mc/size< 1000
+   mc/ttl [5 :m]}
+  [user-id]
+  (db/fetch-user user-id))
 ```
 
-Seeing as cache conf is a map, I recommend a pattern where you have a namespace in your application that contains vars
-with your commonly used cache conf maps and functions that generate slightly parameterized
-configuration. E.g.
+**Note**: Include `mc/type mc/caffeine` for functions that should always cache. For request-scoped caching, you can omit the type (see below).
+
+## Common Use Cases
+
+### Cache with Time Expiration
+
+Data goes stale. Set a TTL (time-to-live) to automatically expire entries:
 
 ```clojure
-(ns my-project.cache
-  (:require [memento.config :as mc]))
-
-;; infinite cache
-(def inf-cache {mc/type mc/caffeine})
-
-(defn for-seconds [n] (assoc inf-cache mc/ttl n))
+(m/defmemo get-exchange-rate
+  "Cache exchange rates for 1 minute."
+  {mc/type mc/caffeine
+   mc/ttl [1 :m]}    ; Also: [30 :s], [2 :h], [1 :d]
+  [currency]
+  (api/fetch-rate currency))
 ```
 
-Then you just use that in your code:
+Or use `fade` for access-based expiration (expires if not accessed):
 
 ```clojure
-(m/defmemo my-function
-  {::m/cache (cache/for-seconds 60)}
-  [x] (* x 2))
+(m/defmemo get-user-preferences
+  "Cache preferences, expire after 10 minutes of no access."
+  {mc/type mc/caffeine
+   mc/fade [10 :m]}
+  [user-id]
+  (db/fetch-preferences user-id))
 ```
 
-## Caches and mount points
+### Limit Cache Size
 
-Enabling memoization of a function is composed of two distinct steps:
-
-- creating a Cache (optional, as you can use an existing cache)
-- binding the cache to the function (a MountPoint is used to connect a function being memoized to the cache)
-
-A cache, an instance of memento.base/Cache, can contain entries from multiple functions and can be shared between memoized functions.
-Each memoized function is bound to a Cache via MountPoint. When you call a function such as `(m/as-map a-cached-function)` you are 
-operating on a MountPoint.
-
-The reason for this separation is two-fold:
-
-#### 1. **Improved Size Based Eviction**
-
-So far all examples implicitly created a new cache for each memoized function, but if we use same cache for multiple 
-functions, then any size based eviction will apply to them as a whole. If you have 100 memoized functions, and you want to
-somewhat limit their memory use, what do you do? In a typical cache library you might limit each of them to 100 entries. So you
-allocated 10000 slots total, but one function might have an empty cache, while a very heavily used one needs way more than 100
-slots. If all 100 function are backed by same Cache instance with 10000 slots then they automatically balance themselves out.
-
-#### 2. **Changing cache temporarily to allow for scoped caching**
-
-This indirection with Mount Points allows us to change which cache is backing a function dynamically. See discussion of tagged
-caches below. Here's an example of using tags when caching and scoped caching
+Prevent unbounded memory growth with size limits:
 
 ```clojure
-(ns myproject.some-ns
-  (:require [myproject.cache :as cache]
-            [memento.core :as m]))
-
-(defn get-person-by-id [person-id]
-  (let [person (db/get-person person-id)]
-    ; tag the returned object with :person + id pair
-    (m/with-tag-id person :person (:id person))))
-
-; add a cache to the function with tags :person and :request
-(m/memo #'get-person-by-id [:person :request] cache/inf)
-
-; remove cache entries from every cache tagged :person globally, where the
-; tag is tagged with :person 1
-(m/memo-clear-tag! :person 1)
-
-(m/with-caches :request (constantly (m/create cache/inf))
-  ; inside this block, a fresh new cache is used (and discarded)
-  ; making a scope-like functionality
-  (get-person-by-id 5))
+(m/defmemo get-product
+  "Cache up to 10,000 products (LRU eviction)."
+  {mc/type mc/caffeine
+   mc/size< 10000}
+  [product-id]
+  (db/fetch-product product-id))
 ```
 
-## Variable expiry
+### Scoped Caching
 
-Instead of setting a fixed duration of validity for entries in a cache, it is possible
-to set these duration on per-tag or per-mount point basis.
-
-Note that for Caffeine cache variable expiry caching is somewhat slower.
-
-### **Read [here](doc/variable-expiry.md)**
-
-## Additional features
-
-#### [Prevent caching of a specific return value (and general return value xform)](doc/ret-fn.md)
-#### [Manually add or evict entries](doc/manual-add-remove.md)
-
-#### `(m/as-map memoized-function)` to get a map of cache entries, also works on MountPoint instances
-#### `(m/memoized? a-function)` returns true if the function is memoized
-#### `(m/memo-unwrap memoized-function)` returns original uncached function, also works on MountPoint instances
-#### `(m/active-cache memoized-function)` returns Cache instance from the function, if present.
-
-## Tags 
-
-You can add tags to the caches. Tags enable that you:
-
-- run actions on caches with specific tags
-- **change or update cache of tagged MountPoints within a scope**
-- change or update cache of tagged MountPoints permanently
-- use secondary index to invalidate entries by a tag + ID pair
-
-This is a very powerful feature, [read more here.](doc/tags.md)
-
-## Loads and invalidations
-
-Cache only has a single ongoing load for a key going at any one time. For Caffeine cache, if a key is invalidated
-during the load, the load is repeated. This is the only way you can get multiple function invocations happen for a single
-cached function call. When an tag is invalidated while it's being loaded, the Thread that loads it will be interrupted.
-
-## Namespace scan
-
-You can scan loaded namespaces for annotated vars and automatically create caches.
-
-[Read more](doc/ns-scan.md)
-
-## Events
-
-You can fire an event at a memoized function. Main use case is to enable adding entries to different functions from same data.
-
-[Read more](doc/events.md)
-
-## Tiered caching
-
-You can use caches that combine two other caches in some way. The easiest way to generate
-the cache configuration needed is to use `memento.core/tiered`,`memento.core/consulting`, `memento.core/daisy`.
-
-[Read more](doc/tiered.md)
-
-## if-cached
-
-memento.core/if-cache is like an if-let, but the "then" branch executes if the function call
-is cached, otherwise else branch is executed. The binding is expected to be a cached function call form, otherwise 
-an error is thrown. 
-
-Example:
+Use `with-caches` to temporarily replace caches for tagged functions within a scope:
 
 ```clojure
-(if-cached [v (my-function arg1)]
-  (println "cached value is " v)
-  (println "value is not cached"))
+;; Option 1: No caching outside scope (tags only, no mc/type)
+(m/defmemo get-user
+  {mc/tags [:request]}
+  [user-id]
+  (db/fetch-user user-id))
+
+;; Option 2: Long-term cache outside scope, fresh cache inside
+(m/defmemo get-user-orders
+  {mc/type mc/caffeine
+   mc/ttl [1 :h]
+   mc/tags [:request]}
+  [user-id]
+  (db/fetch-orders user-id))
+
+;; In your request handler middleware
+(defn wrap-request-cache [handler]
+  (fn [request]
+    (m/with-caches :request
+      (constantly (m/create {mc/type mc/caffeine}))  ; Fresh cache for this scope
+      (handler request))))
+      
+;; Within a request:
+;; - Both functions use the fresh scoped cache
+;; - Multiple calls with same args hit the cache
+;; - Cache is discarded when scope ends
 ```
 
-## Skip/disable caching
+See the [Scoped Caching Guide](doc/scoped-caching.md) for more patterns including nested scopes and consulting long-term caches.
 
-If you set `-Dmemento.enabled=false` JVM option (or change `memento.config/enabled?` var root binding), 
-then type of all caches created will be `memento.base/no-cache`, which does no caching. 
+### Custom Cache Keys
 
-## Reload guards
+By default, the cache key is the full argument list. Use `mc/key-fn` to transform it:
 
-When you memoize a function with tags, a special object is created that will clean up in internal tag
-mappings when memoized function is GCed. It's important when reloading namespaces to remove mount points
-on the old function versions.
+```clojure
+;; Ignore the db-conn argument for caching purposes
+(m/defmemo get-user
+  {mc/type mc/caffeine
+   mc/key-fn rest}  ; Cache key is [user-id], not [db-conn user-id]
+  [db-conn user-id]
+  (db/fetch-user db-conn user-id))
 
-It uses finalize, which isn't free (takes extra work to allocate and GC has to work harder), so
-if you don't use namespace reloading, and you want to optimize you can disable reload guard objects.
+;; Extract a nested value from a request map
+(m/defmemo get-current-user
+  {mc/type mc/caffeine
+   mc/key-fn* (fn [request] (-> request :session :user-id))}
+  [request]
+  (db/fetch-user (-> request :session :user-id)))
+```
 
-Set `-Dmemento.reloadable=false` JVM option (or change `memento.config/reload-guards?` var root binding).
+`mc/key-fn` receives args as a sequence; `mc/key-fn*` receives them as separate parameters (like the function itself).
 
-## Breaking changes
+### Transform Return Values
 
-Patch versions are compatible. Minor version change breaks API for implementation authors, but not for users,
-major version change breaks user API.
+Use `mc/ret-fn` to transform values before caching, or prevent caching certain values:
 
-Version 1.0.x changed implementation from Guava to Caffeine
-Version 0.9.0 introduced many breaking changes.
+```clojure
+;; Don't cache error responses
+(m/defmemo fetch-api-data
+  {mc/type mc/caffeine
+   mc/ret-fn (fn [args response]
+               (if (>= (:status response 0) 400)
+                 (m/do-not-cache response)  ; Don't cache errors
+                 response))}
+  [endpoint]
+  (http/get endpoint))
+```
+
+### Invalidate When Data Changes
+
+Without tag-based invalidation, you face an N×M maintenance problem:
+- You have **N cached functions** that read user data
+- You have **M functions** that modify user data
+- Every modifier must know about every cached function to invalidate it
+- Adding a new cached function means updating all M modifiers
+- Adding a new modifier means knowing all N cached functions
+
+Tag-based invalidation decouples them completely:
+
+```clojure
+;; CACHED FUNCTIONS: just tag with :user, don't care who invalidates
+(m/defmemo get-user
+  {mc/type mc/caffeine, mc/tags [:user]}
+  [user-id]
+  (-> (db/fetch-user user-id)
+      (m/with-tag-id :user user-id)))
+
+(m/defmemo get-user-orders  
+  {mc/type mc/caffeine, mc/tags [:user]}
+  [user-id]
+  (-> (db/fetch-orders user-id)
+      (m/with-tag-id :user user-id)))
+
+(m/defmemo get-user-preferences
+  {mc/type mc/caffeine, mc/tags [:user]}
+  [user-id]
+  (-> (db/fetch-preferences user-id)
+      (m/with-tag-id :user user-id)))
+
+;; MODIFYING FUNCTIONS: just invalidate :user tag, don't care who's cached
+(defn update-user! [user-id data]
+  (db/update-user! user-id data)
+  (m/memo-clear-tag! :user user-id))
+
+(defn delete-user! [user-id]
+  (db/delete-user! user-id)
+  (m/memo-clear-tag! :user user-id))
+
+(defn merge-users! [from-id to-id]
+  (db/merge-users! from-id to-id)
+  (m/memo-clear-tags! [:user from-id] [:user to-id]))
+```
+
+Now you can add cached functions or modifying functions independently - they only need to agree on the tag name (`:user`).
+
+A cached value can also be tagged with **multiple IDs** - useful for aggregated data like dashboards. See the [Invalidation Guide](doc/invalidation.md) for details.
+
+### Manually Clear Cache
+
+```clojure
+;; Clear all entries for a function
+(m/memo-clear! get-user)
+
+;; Clear specific entry
+(m/memo-clear! get-user 123)
+```
+
+## Configuration Reference
+
+### Time Units
+
+Durations can be numbers (seconds) or `[amount :unit]` pairs:
+
+```clojure
+30        ; 30 seconds
+[30 :s]   ; 30 seconds
+[5 :m]    ; 5 minutes
+[2 :h]    ; 2 hours
+[1 :d]    ; 1 day
+```
+
+### Common Settings
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| `mc/type` | Cache implementation (**required**) | `mc/caffeine` |
+| `mc/size<` | Max entries (LRU eviction) | `1000` |
+| `mc/ttl` | Time-to-live | `[5 :m]` |
+| `mc/fade` | Expire after last access | `[10 :m]` |
+| `mc/tags` | Tags for scoping/invalidation | `[:user :request]` |
+| `mc/key-fn` | Transform args to cache key | `(fn [args] ...)` |
+| `mc/ret-fn` | Transform return value | `(fn [args val] ...)` |
+
+See [Configuration Guide](doc/configuration.md) for all options.
+
+## Further Documentation
+
+- **[Configuration Guide](doc/configuration.md)** - All configuration options, `key-fn`, `ret-fn`
+- **[Invalidation Guide](doc/invalidation.md)** - Cache clearing, tag-based invalidation
+- **[Scoped Caching Guide](doc/scoped-caching.md)** - `with-caches`, nested scopes, request patterns
+- **[Advanced Features](doc/advanced.md)** - Tiered caching, events, variable expiry
+- **[Performance](doc/performance.md)** - Benchmarks and comparisons
+- **[Internals](doc/internals.md)** - Architecture for contributors
+
+## Disabling Caching
+
+For testing or debugging, disable all caching globally:
+
+```bash
+java -Dmemento.enabled=false ...
+```
+
+## Migration
+
+See [MIGRATION.md](MIGRATION.md) for version upgrade guides.
 
 ## License
 
-Copyright © 2020-2021 Rok Lenarčič
+Copyright 2020-2024 Rok Lenarcic
 
-Licensed under the term of the MIT License, see LICENSE.
+Licensed under the MIT License.

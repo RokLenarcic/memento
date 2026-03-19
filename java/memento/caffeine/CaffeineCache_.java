@@ -62,11 +62,11 @@ public class CaffeineCache_ {
                         delegate.asMap().remove(key, p);
                         continue;
                     }
-                    // if valid add to secondary index
-                    secIndex.add(key, result);
                     if (result instanceof EntryMeta && ((EntryMeta) result).isNoCache()) {
                         delegate.asMap().remove(key, p);
                     } else {
+                        // if valid add to secondary index
+                        secIndex.add(key, result);
                         delegate.asMap().replace(key, p, result == null ? EntryMeta.NIL : result);
                     }
                     return EntryMeta.unwrap(result);
