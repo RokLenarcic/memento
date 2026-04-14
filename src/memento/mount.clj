@@ -19,6 +19,8 @@
 (derive config/id ::conf)
 (derive config/key-fn* ::conf)
 (derive config/ret-ex-fn ::conf)
+(derive config/ttl ::conf)
+(derive config/fade ::conf)
 
 (defn assoc-cache-tags
   "Add Mount Point ref to tag index"

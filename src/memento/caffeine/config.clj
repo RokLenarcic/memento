@@ -44,7 +44,7 @@
 
 ;; makes no sense, since user cannot hold on to our CacheKey instances
 #_(def weak-keys
-  "Cache setting, corresponds to .weakKeys on CacheBuilder.
+    "Cache setting, corresponds to .weakKeys on CacheBuilder.
 
   Boolean flag, enabling storing keys using weak references.
 
@@ -56,7 +56,7 @@
   the Map specification (in the same way that IdentityHashMap does).
 
   The identity comparison makes this not very useful."
-  :memento.caffeine/weak-keys)
+    :memento.caffeine/weak-keys)
 
 (def weak-values
   "Cache setting, corresponds to .weakValues on CacheBuilder.
@@ -99,10 +99,10 @@
   :memento.caffeine/ticker)
 
 (def expiry
-  "A cache and function bind setting, an instance of memento.caffeine.Expiry interface.
+  "A cache setting, an instance of memento.caffeine.Expiry interface.
 
-  Enables user to specify cached entry expiry on each entry individually. If interface
-  functions return nil, then ttl and fade settings apply."
+   Enables user to specify cached entry expiry on each entry individually. If interface
+   functions return nil, then ttl and fade settings apply."
   :memento.caffeine/expiry)
 
 (def meta-expiry

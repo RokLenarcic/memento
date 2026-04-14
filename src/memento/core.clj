@@ -76,7 +76,12 @@
            (reduce-kv (fn [acc k v]
                         (assoc-in acc [(isa? k ::mount/conf) k] v))
                       {}
-                      conf)]
+                      conf)
+           ;; ttl and fade are both mount and cache settings,
+           ;; ensure they reach cache-conf too
+           cache-conf (cond-> cache-conf
+                        (contains? conf ::ttl) (assoc ::ttl (::ttl conf))
+                        (contains? conf ::fade) (assoc ::fade (::fade conf)))]
        (memo fn-or-var mount-conf cache-conf))
      (memo fn-or-var conf {})))
   ([fn-or-var mount-conf cache-conf]
@@ -88,7 +93,7 @@
   "Like defn, but immediately wraps var in a memo call. It expects caching configuration
   to be in meta under memento.core/cache key, as expected by memo."
   {:arglists '([name doc-string? attr-map? [params*] prepost-map? body]
-               [name doc-string? attr-map? ([params*] prepost-map? body)+ attr-map?])}
+               [name doc-string? attr-map? ([params*] prepost-map? body) + attr-map?])}
   [& body]
   `(memo (defn ~@body)))
 

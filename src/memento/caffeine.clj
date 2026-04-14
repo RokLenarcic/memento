@@ -11,7 +11,7 @@
 (defn create-expiry
   "Assumes variable expiry is needed. So either ttl or fade is a function."
   [ttl fade ^Expiry cache-expiry]
-  (let [read-default (some-> (or ttl fade) (Durations/nanos))
+  (let [read-default (some-> fade (Durations/nanos))
         write-default (Durations/nanos (or ttl fade [Long/MAX_VALUE :ns]))]
     (reify com.github.benmanes.caffeine.cache.Expiry
       (expireAfterCreate [this k v current-time]
