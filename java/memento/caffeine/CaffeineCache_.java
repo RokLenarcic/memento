@@ -60,6 +60,7 @@ public class CaffeineCache_ {
                     if (!p.deliver(result)) {
                         // The SpecialPromise was invalidated, restart the process
                         delegate.asMap().remove(key, p);
+                        Thread.interrupted();
                         continue;
                     }
                     if (result instanceof EntryMeta && ((EntryMeta) result).isNoCache()) {
@@ -75,6 +76,8 @@ public class CaffeineCache_ {
                     if (!p.isInvalid()) {
                         p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
                         throw t;
+                    } else {
+                        Thread.interrupted();
                     }
                 } finally {
                     p.releaseResult();

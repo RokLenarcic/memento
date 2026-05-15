@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.72
+
+- Clear internal cache invalidation interrupts before retrying Caffeine loads.
+
 ## 2.0.68
 
 - correctly wraps MultiFn
