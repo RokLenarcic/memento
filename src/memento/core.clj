@@ -7,7 +7,7 @@
             [memento.mount :as mount])
   (:import (java.util IdentityHashMap)
            (java.util.function BiFunction)
-           (memento.base EntryMeta ICache LockoutTag)
+           (memento.base EntryMeta ICache InvalidationClock)
            (memento.mount Cached IMountPoint)))
 
 (defn do-not-cache
@@ -184,12 +184,12 @@
               cache
               (reify BiFunction
                 (apply [this k v] (into (or v []) tag+ids)))))
-        tag (LockoutTag.)]
+        epoch (InvalidationClock/claimInvalidationEpoch)]
     (try
-      (.startLockout base/lockout-map tag+ids tag)
+      (.startInvalidation base/tag-invalidation tag+ids epoch)
       (run! (fn [e] (base/invalidate-ids (key e) (val e))) cache->ids)
       (finally
-        (.endLockout base/lockout-map tag+ids tag)))))
+        (.endInvalidation base/tag-invalidation tag+ids epoch)))))
 
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."

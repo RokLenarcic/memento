@@ -8,7 +8,6 @@ import java.util.Objects;
 public class EntryMeta {
 
     public static final Object absent = new Object();
-    public static final EntryMeta NIL = new EntryMeta(null, false, null);
 
     public static Object unwrap(Object o) {
         return o instanceof EntryMeta ? ((EntryMeta) o).getV() : o;
@@ -45,7 +44,7 @@ public class EntryMeta {
     }
 
     public void setTagIdents(IPersistentSet tagIdents) {
-        this.tagIdents = tagIdents;
+        this.tagIdents = tagIdents == null ? PersistentHashSet.EMPTY : tagIdents;
     }
 
     @Override

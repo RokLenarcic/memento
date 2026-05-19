@@ -101,7 +101,7 @@ From 11 stack frames to 4.
 - **`Segment`**: Function binding metadata
 - **`CacheKey`**: Composite key (id + args)
 - **`EntryMeta`**: Wrapper for cached values with metadata (tag IDs, no-cache flag)
-- **`LockoutMap`**: Coordinates bulk invalidations
+- **`TagInvalidation`**: Tracks active tag invalidations by epoch
 - **`Durations`**: Time unit conversions
 
 ### `memento.mount`
@@ -149,33 +149,66 @@ Tag invalidation is more complex because:
 - Ongoing loads may produce stale data
 - We need atomicity across multiple operations
 
-#### LockoutMap
+#### TagInvalidation
 
-The `LockoutMap` coordinates bulk invalidations:
+The `TagInvalidation` tracker coordinates bulk invalidations:
 
 ```java
-public class LockoutMap {
-    // Map of [tag, id] -> CountDownLatch
+public class TagInvalidation {
+    // Map of [tag, id] -> invalidation epoch
     // When invalidation starts, entry is added
-    // Loads check this map and wait if their tag is being invalidated
-    // When invalidation completes, latch is counted down and entry removed
+    // Loads compare their start epoch with active tag invalidation epochs
+    // When invalidation completes, the entry is removed if the epoch still matches
 }
 ```
 
 #### Invalidation Sequence
 
-1. Add tag+ID to lockout map with a latch
+1. Add tag+ID to active invalidation map with an epoch
 2. Find all cache keys with this tag+ID (via secondary index)
 3. Invalidate each key
-4. Remove from lockout map, signal latch
+4. Remove matching epoch from active invalidation map
 
 #### Load Sequence (with tag checking)
 
-1. Check if key's potential tags are in lockout map
-2. If yes, wait on latch
-3. Proceed with load
-4. Before caching result, check if any tag IDs were invalidated during load
-5. If yes, discard result and retry
+1. On load start, capture the current `InvalidationClock` value as the load's epoch.
+2. Proceed with load.
+3. Before publishing the result, compute `latestInvalidation` as the max of
+   the segment's invalidation epoch, the cache's invalidation epoch, and
+   `TagInvalidation.lastInvalidatedEpoch` for the result's tag IDs.
+4. If the load's epoch is less than or equal to `latestInvalidation`, or any
+   of the result's tag IDs were marked invalid on the load's `SpecialPromise`
+   during the load, discard the result and retry.
+5. Otherwise CAS-publish the value onto the `SpecialPromise` via `deliver`.
+   Concurrent `invalidate()` calls also CAS the promise to `EntryMeta.absent`;
+   whichever wins determines the outcome. If `deliver` lost the race, the loader
+   removes the entry from the delegate map and retries.
+6. After `deliver` wins, build the canonical `CacheEntry`, `replace` the promise
+   with it in the delegate map, then call `p.reject()` on the promise. Rejection
+   forcibly clears the promise's published value so any joiners blocked in
+   `await()` wake up, observe `absent`, and re-loop through the delegate map.
+   This redirects joiners to the now-published `CacheEntry` (or its successor)
+   and is the mechanism that lets joiners revalidate against any invalidation
+   that arrived between `deliver` and `replace`.
+
+Note: `invalidateIds` on `ICache` only updates its own cache's `loads` set and
+secondary index. Cross-cache visibility of an ongoing tag invalidation is
+provided by `TagInvalidation.startInvalidation` / `endInvalidation`, which
+`memento.core/memo-clear-tags!` wraps around the per-cache invalidation calls.
+
+#### Promise Result CAS
+
+`SpecialPromise.result` is updated through an `AtomicReferenceFieldUpdater`.
+The transitions are:
+
+- `deliver` / `deliverException`: CAS from `null` to a published value. Fails
+  if another writer (typically `invalidate`) already moved the field.
+- `invalidate`: `getAndSet` to `EntryMeta.absent`. Always wins; only interrupts
+  the loader thread if it observed a non-`absent` prior value (i.e. it actually
+  clobbered something, ensuring the interrupt has a meaningful target).
+- `reject`: unconditional `set` to `EntryMeta.absent`. Used by the loader after
+  it has published the canonical `CacheEntry` to the delegate map, to push
+  joiners off the promise channel and back through the map.
 
 ### Thread Interruption
 

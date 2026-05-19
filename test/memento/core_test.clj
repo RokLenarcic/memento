@@ -4,7 +4,7 @@
             [memento.config :as mc]
             [memento.caffeine.config :as mcc])
   (:import (java.io IOException)
-           (memento.base EntryMeta ICache)
+           (memento.base EntryMeta ICache TagInvalidation)
            (memento.caffeine Expiry)
            (memento.mount IMountPoint)))
 
@@ -286,6 +286,46 @@
       (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
       (is (= {[2] 2} (do (memo-clear-tag! :tag 1) (as-map f)))))))
 
+(deftest stale-secondary-index-does-not-remove-replaced-entry
+  (let [f (memo (fn [x] (with-tag-id x :tag :old)) :tag inf)]
+    (is (= 1 (f 1)))
+    (is (= f (memo-add! f {[1] (with-tag-id 10 :tag :new)})))
+    (is (= 10 (f 1)))
+    (is (= {[1] 10} (do (memo-clear-tag! :tag :old) (as-map f))))
+    (is (= {} (do (memo-clear-tag! :tag :new) (as-map f))))))
+
+(deftest overlapping-tag-invalidation-epochs-test
+  (let [tag-invalidation (TagInvalidation.)
+        tag-idents #{[:tag 1]}]
+    (.startInvalidation tag-invalidation tag-idents 10)
+    (is (= 10 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (.startInvalidation tag-invalidation tag-idents 20)
+    (is (= 20 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (.endInvalidation tag-invalidation tag-idents 10)
+    (is (= 20 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (.endInvalidation tag-invalidation tag-idents 20)
+    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation nil)))
+    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation #{})))))
+
+(deftest tagged-invalidation-across-caches-test
+  (testing "tag invalidation clears matching entries across cache instances"
+    (let [calls-a (atom 0)
+          calls-b (atom 0)
+          a (m/memo (fn [] (m/with-tag-id (swap! calls-a inc) :shared 1))
+                    (assoc inf mc/tags :shared))
+          b (m/memo (fn [] (m/with-tag-id (swap! calls-b inc) :shared 1))
+                    (assoc inf mc/tags :shared))]
+      (is (= [1 1] [(a) (b)]))
+      (is (= {nil 1} (as-map a)))
+      (is (= {nil 1} (as-map b)))
+      (memo-clear-tag! :shared 1)
+      (is (= {} (as-map a)))
+      (is (= {} (as-map b)))
+      (is (= [2 2] [(a) (b)]))
+      (is (= {nil 2} (as-map a)))
+      (is (= {nil 2} (as-map b))))))
+
 (deftest fire-event-test
   (testing "event is fired on referenced cache"
     (let [access-nums (atom 0)
@@ -370,6 +410,83 @@
       (future (Thread/sleep 15)
               (m/memo-clear-tag! :xx 1))
       (is (= 2 (c)))))
+  (testing "tag invalidation during load does not store stale result"
+    (let [started (promise)
+          release? (atom false)
+          a (atom 0)
+          c (m/memo (fn []
+                      (deliver started true)
+                      (while (not @release?)
+                        (Thread/onSpinWait))
+                      (m/with-tag-id (swap! a inc) :yy 1))
+                    (assoc inf mc/tags :yy))
+          load (future (c))]
+      @started
+      (m/memo-clear-tag! :yy 1)
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (= {nil 2} (as-map c)))))
+  (testing "tag invalidation during load coordinates across caches"
+    (let [started (promise)
+          release? (atom false)
+          a-calls (atom 0)
+          b-calls (atom 0)
+          a (m/memo (fn []
+                      (deliver started true)
+                      (while (not @release?)
+                        (Thread/onSpinWait))
+                      (m/with-tag-id (swap! a-calls inc) :zz 1))
+                    (assoc inf mc/tags :zz))
+          b (m/memo (fn [] (m/with-tag-id (swap! b-calls inc) :zz 1))
+                    (assoc inf mc/tags :zz))
+          load (future (a))]
+      (is (= 1 (b)))
+      @started
+      (m/memo-clear-tag! :zz 1)
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (= {nil 2} (as-map a)))
+      (is (= {} (as-map b)))
+      (is (= 2 (b)))
+      (is (= {nil 2} (as-map b)))))
+  (testing "segment invalidation during load does not store stale result"
+    (let [started (promise)
+          release? (atom false)
+          a (atom 0)
+          c (m/memo (fn []
+                      (deliver started true)
+                      (while (not @release?)
+                        (Thread/onSpinWait))
+                      (swap! a inc))
+                    inf)
+          load (future (c))]
+      @started
+      (m/memo-clear! c)
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (= {nil 2} (as-map c)))))
+  (testing "cache invalidation during load does not store stale result"
+    (let [started (promise)
+          release? (atom false)
+          a (atom 0)
+          c (m/memo (fn []
+                      (deliver started true)
+                      (while (not @release?)
+                        (Thread/onSpinWait))
+                      (swap! a inc))
+                    inf)
+          load (future (c))]
+      @started
+      (m/memo-clear-cache! (m/active-cache c))
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (= {nil 2} (as-map c)))))
+  (testing "load started after invalidation can publish result"
+    (let [a (atom 0)
+          c (m/memo (fn [] (swap! a inc)) inf)]
+      (m/memo-clear! c)
+      (is (= 1 (c)))
+      (is (= {nil 1} (as-map c)))))
   (testing "Invalidation during load test"
     (let [a (atom 0)
           after (atom 0)
@@ -379,6 +496,50 @@
       (future (Thread/sleep 10)
               (m/memo-clear! c))
       (is (= [2 1] (c))))))
+
+(deftest joiner-sees-retried-value-after-invalidate-during-load-test
+  (testing "joiner blocked on a load that gets invalidated mid-compute re-loops and observes the retried load's value, not the stale first value"
+    (let [calls (atom 0)
+          started (promise)
+          release? (atom false)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (when (= n 1)
+                          (deliver started true)
+                          (while (not @release?)
+                            (Thread/onSpinWait)))
+                        n))
+                    inf)
+          loader (future (c))
+          ;; wait for the loader to enter its compute
+          _ @started
+          joiner (future (c))]
+      ;; let the joiner block on the SpecialPromise
+      (Thread/sleep 50)
+      ;; invalidate while the loader is still computing; the loader's deliver
+      ;; must observe result==absent and refuse to install the entry, forcing
+      ;; a retry. The joiner must not return the discarded first value.
+      (m/memo-clear! c)
+      (reset! release? true)
+      (is (= 2 @loader))
+      (is (= 2 @joiner))
+      (is (= {nil 2} (as-map c)))
+      ;; loader's first compute (1) was discarded; retried compute produced 2
+      (is (= 2 @calls)))))
+
+(deftest no-cache-concurrent-load-test
+  (let [calls (atom 0)
+        c (m/memo (fn []
+                    (Thread/sleep 100)
+                    (-> (swap! calls inc) do-not-cache))
+                  inf)
+        loads (doall (repeatedly 5 #(future (c))))]
+    (is (= [1 1 1 1 1] (mapv deref loads)))
+    (is (= 1 @calls))
+    (is (= {} (as-map c)))
+    (is (= 2 (c)))
+    (is (= 2 @calls))
+    (is (= {} (as-map c)))))
 
 (deftest ret-ex-fn-test
   (testing "returns transformed-exception"

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.73
+
+- Rework internal invalidation tracking around explicit invalidation epochs and tag invalidation state.
+- Improve Caffeine tag invalidation handling for in-flight loads and secondary index cleanup.
+- `SpecialPromise.result` is now updated through an atomic CAS field updater so
+  concurrent `deliver` and `invalidate` calls cannot lose each other's writes;
+  `invalidate` always wins and `deliver` reports whether it actually published.
+- After a load publishes its canonical `CacheEntry` to the delegate map, the
+  loader now rejects its `SpecialPromise` so joiners blocked in `await()`
+  re-loop through the map and observe the published entry (or any subsequent
+  invalidation) instead of taking the value from the promise channel.
+
 ## 2.0.72
 
 - Clear internal cache invalidation interrupts before retrying Caffeine loads.
@@ -49,7 +61,7 @@
 - important fix for secondary indexes clearing
 - reduced memory use
 - improving performance on evictions when an eviction listener isn't used
-- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of tag ids, the implementations are expected to take care to block loads until invalidations are complete. Use the `memento.base/lockout-map` for this purpose.
+- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of tag ids; implementations are expected to coordinate in-flight loads with tag invalidations.
 
 ## 1.1.54
 

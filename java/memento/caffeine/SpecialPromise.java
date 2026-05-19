@@ -1,38 +1,43 @@
 package memento.caffeine;
 
-import clojure.lang.ISeq;
+import clojure.lang.IPersistentSet;
 import memento.base.EntryMeta;
-import memento.base.LockoutMap;
+import memento.base.TagInvalidation;
 
-import java.util.HashSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * Special promise for use in indirection in Caffeine cache. Do not use otherwise.
  * <p>
- * This class is NOT threadsafe. The intended use is as a faster CompletableFuture that is
- * aware of the thread that made it, so it can detect when same thread is trying to await on it
- * and throw to prevent deadlock.
+ * This class is intended to be created and delivered by a single loader thread, while other
+ * threads await the result via {@link #await(Object)}. The loader is detected so that recursive
+ * loads on the same key throw {@link StackOverflowError} instead of deadlocking.
  * <p>
- * It is also expected that it is created and delivered by the same thread and it is expected that
- * any other thread is awaiting result and that only a single attempt is made at delivering the result.
- * <p>
- * It does not include logic to deal with multiple calls to deliver the promise, as it's optimized for
- * a specific use case.
+ * The loader thread calls {@link #deliver(Object, long)} at most once. Concurrent invalidation
+ * from other threads (via {@link #invalidate()} or {@link #addInvalidIds(Iterable)}) is supported
+ * and serialized through CAS on {@code result}: only one of {@code deliver}, {@code reject},
+ * {@code deliverException}, or {@code invalidate} can publish a terminal value. Once
+ * {@code result} has been CAS'd from {@code null} to a terminal value, all subsequent attempts
+ * become no-ops. {@code deliver} returns {@code true} only if it actually published the value;
+ * if a concurrent {@code invalidate} won the CAS first, {@code deliver} returns {@code false}
+ * and the loader is expected to discard the entry.
  */
 public class SpecialPromise {
 
     private static final AltResult NIL = new AltResult(null);
+    @SuppressWarnings("rawtypes")
+    private static final AtomicReferenceFieldUpdater<SpecialPromise, Object> RESULT =
+            AtomicReferenceFieldUpdater.newUpdater(SpecialPromise.class, Object.class, "result");
     private final CountDownLatch d = new CountDownLatch(1);
-    // these 2 don't need to be thread-safe, because they are only used to check
-    // if current thread is one that created and started the load on the promise
-    // so even with non-volatile, check is only true if thread is same as current thread
-    // so no memory barrier needed
-    private final HashSet<Object> invalidatedIds = new HashSet<>();
-    private volatile Thread thread;
+    private final ConcurrentLinkedQueue<Object> invalidatedIds = new ConcurrentLinkedQueue<>();
+    private final Thread thread;
+    private final long epoch;
     private volatile Object result;
 
-    public void init() {
+    public SpecialPromise(long epoch) {
+        this.epoch = epoch;
         this.thread = Thread.currentThread();
     }
 
@@ -57,32 +62,43 @@ public class SpecialPromise {
         }
     }
 
-    private boolean isLockedOut(EntryMeta em) {
-        try {
-            return LockoutMap.awaitLockout(em);
-        } catch (InterruptedException e) {
-            return true;
+    // Returns true if delivered object is viable AND was published (i.e. CAS won).
+    public boolean deliver(Object r, long latestInvalidation) {
+        if (result == EntryMeta.absent) {
+            Thread.interrupted();
+            return false;
         }
+        IPersistentSet tagIdents = null;
+        if (r instanceof EntryMeta) {
+            tagIdents = ((EntryMeta) r).getTagIdents();
+            latestInvalidation = Long.max(latestInvalidation, TagInvalidation.INSTANCE.lastInvalidatedEpoch(tagIdents));
+        }
+        if (epoch <= latestInvalidation) {
+            RESULT.compareAndSet(this, null, EntryMeta.absent);
+            return false;
+        } else if (tagIdents != null && hasInvalidatedTagId(tagIdents)) {
+            RESULT.compareAndSet(this, null, EntryMeta.absent);
+            return false;
+        }
+        Object published = r == null ? NIL : r;
+        if (!RESULT.compareAndSet(this, null, published)) {
+            // A concurrent invalidate() won the race and set result=absent.
+            Thread.interrupted();
+            return false;
+        }
+        return true;
     }
 
-    // Returns true if delivered object is viable
-    public boolean deliver(Object r) {
-        if (r instanceof EntryMeta) {
-            EntryMeta em = (EntryMeta) r;
-            if (isLockedOut(em) || hasInvalidatedTagId(em)) {
-                result = EntryMeta.absent;
-                return false;
-            }
-        }
-        if (result != EntryMeta.absent) {
-            result = r == null ? NIL : r;
-            return true;
-        }
-        return false;
+
+    public void reject() {
+        // Force absent regardless of any previously-published value. Used by the loader
+        // after it has published the canonical CacheEntry to the delegate map, to redirect
+        // joiners blocked in await() back through the map for revalidation.
+        RESULT.set(this, EntryMeta.absent);
     }
 
     public void deliverException(Throwable t) {
-        result = new AltResult(t);
+        RESULT.compareAndSet(this, null, new AltResult(t));
     }
 
     public Object getNow() throws Throwable {
@@ -103,8 +119,14 @@ public class SpecialPromise {
     }
 
     public void invalidate() {
-        result = EntryMeta.absent;
-        thread.interrupt();
+        // Invalidate always wins: clobber any prior value with absent so joiners blocked
+        // in await() observe a miss and re-loop. The loader, if still running, will see
+        // isInvalid()==true after its own deliver() and discard its entry. The caller of
+        // invalidate is responsible for removing the entry from the delegate map.
+        Object prev = RESULT.getAndSet(this, EntryMeta.absent);
+        if (prev != EntryMeta.absent) {
+            thread.interrupt();
+        }
     }
 
     public boolean isInvalid() {
@@ -115,24 +137,21 @@ public class SpecialPromise {
         d.countDown();
     }
 
-    private boolean hasInvalidatedTagId(EntryMeta entryMeta) {
-        synchronized (invalidatedIds) {
-            ISeq s = entryMeta.getTagIdents().seq();
-            while (s != null) {
-                if (invalidatedIds.contains(s.first())) {
-                    return true;
-                }
-                s = s.next();
+    public boolean hasInvalidatedTagId(IPersistentSet tagIdents) {
+        if (tagIdents == null || tagIdents.count() == 0) {
+            return false;
+        }
+        for (Object id : invalidatedIds) {
+            if (tagIdents.contains(id)) {
+                return true;
             }
         }
         return false;
     }
 
     public void addInvalidIds(Iterable<Object> ids) {
-        synchronized (invalidatedIds) {
-            for (Object id : ids) {
-                invalidatedIds.add(id);
-            }
+        for (Object id : ids) {
+            invalidatedIds.add(id);
         }
     }
 
@@ -143,5 +162,4 @@ public class SpecialPromise {
             this.value = value;
         }
     }
-
 }

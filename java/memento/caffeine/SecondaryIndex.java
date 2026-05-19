@@ -1,16 +1,17 @@
 package memento.caffeine;
 
 import clojure.lang.ISeq;
+import memento.base.CacheEntry;
 import memento.base.CacheKey;
-import memento.base.EntryMeta;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public class SecondaryIndex {
 
@@ -23,39 +24,56 @@ public class SecondaryIndex {
     /**
      * Add entry to secondary index.
      * k is CacheKey of incoming Cache entry
-     * v is value of incoming cache entry, might be EntryMeta, if it is then we use each tag-idents
-     * as key (id) pointing to a HashSet of CacheKeys.
+     * entry is the incoming cache entry. For each tag ID we add CacheKey to its HashSet.
      * <p>
      * For each ID we add CacheKey to its HashSet.
      *
      * @param k
      * @param v
      */
-    public void add(CacheKey k, Object v) {
-        if (v instanceof EntryMeta) {
-            EntryMeta e = ((EntryMeta) v);
-            ISeq s = e.getTagIdents().seq();
-            while (s != null) {
-                Set<IndexEntry> cacheKeys = lookup.computeIfAbsent(s.first(), key -> new HashSet<>());
-                synchronized (cacheKeys) {
-                    cacheKeys.add(new IndexEntry(cacheKeys, k));
+    public void add(CacheKey k, CacheEntry entry) {
+        ISeq s = entry.getTagIdents().seq();
+        while (s != null) {
+            Set<IndexEntry> cacheKeys = lookup.computeIfAbsent(s.first(), key -> new HashSet<>());
+            synchronized (cacheKeys) {
+                cacheKeys.add(new IndexEntry(cacheKeys, k, entry.getWriteEpoch()));
+            }
+            s = s.next();
+        }
+    }
+
+    public void removeIf(Object tagId, Predicate<IndexEntry> shouldRemove) {
+        Set<IndexEntry> entries = lookup.get(tagId);
+        if (entries != null) {
+            synchronized (entries) {
+                Iterator<IndexEntry> iter = entries.iterator();
+                while (iter.hasNext()) {
+                    IndexEntry entry = iter.next();
+                    if (entry.getKey() == null || shouldRemove.test(entry)) {
+                        iter.remove();
+                    }
                 }
-                s = s.next();
+                if (entries.isEmpty()) {
+                    lookup.remove(tagId, entries);
+                }
             }
         }
     }
 
-    public void drainKeys(Object tagId, Consumer<CacheKey> onValue) {
-        Set<IndexEntry> entries = lookup.remove(tagId);
-        if (entries != null) {
-            synchronized (entries) {
-                for (IndexEntry e : entries) {
-                    CacheKey c = e.get();
-                    if (c != null) {
-                        onValue.accept(c);
+    public void removeKeys(CacheKey key, CacheEntry entry) {
+        ISeq tagIds = entry.getTagIdents().seq();
+        while (tagIds != null) {
+            Object tagId = tagIds.first();
+            Set<IndexEntry> entries = lookup.get(tagId);
+            if (entries != null) {
+                synchronized (entries) {
+                    entries.remove(new IndexEntry(entries, key, entry.getWriteEpoch()));
+                    if (entries.isEmpty()) {
+                        lookup.remove(tagId, entries);
                     }
                 }
             }
+            tagIds = tagIds.next();
         }
     }
 
@@ -65,11 +83,21 @@ public class SecondaryIndex {
     public static class IndexEntry extends WeakReference<CacheKey> {
         private final Set<IndexEntry> home;
         private final int hash;
+        private final long writeEpoch;
 
-        public IndexEntry(Set<IndexEntry> home, CacheKey key) {
+        public IndexEntry(Set<IndexEntry> home, CacheKey key, long writeEpoch) {
             super(key, evicted);
-            this.hash = key.hashCode();
+            this.hash = Objects.hash(key, writeEpoch);
             this.home = home;
+            this.writeEpoch = writeEpoch;
+        }
+
+        public CacheKey getKey() {
+            return get();
+        }
+
+        public long getWriteEpoch() {
+            return writeEpoch;
         }
 
         public void delete() {
@@ -84,7 +112,7 @@ public class SecondaryIndex {
             if (this == o) return true;
             if (o instanceof IndexEntry) {
                 IndexEntry that = (IndexEntry) o;
-                return hash == that.hash && Objects.equals(get(), that.get());
+                return hash == that.hash && writeEpoch == that.writeEpoch && Objects.equals(get(), that.get());
             } else {
                 return false;
             }

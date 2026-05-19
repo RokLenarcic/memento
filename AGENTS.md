@@ -39,8 +39,8 @@ memento/
 │   │   ├── Segment.java   # Function binding info
 │   │   ├── CacheKey.java  # Composite key (id + args)
 │   │   ├── EntryMeta.java # Cached value wrapper with metadata
-│   │   ├── LockoutMap.java # Bulk invalidation coordination
-│   │   ├── LockoutTag.java
+│   │   ├── TagInvalidation.java # Active tag invalidation tracking across caches
+│   │   ├── InvalidationClock.java # Global monotonic epoch source
 │   │   └── Durations.java
 │   ├── mount/             # Mount point implementations
 │   │   ├── IMountPoint.java
@@ -112,7 +112,7 @@ memento/
 Java is used for performance-critical paths:
 - Reduces stack depth for cached calls
 - Implements `ICache` and `IMountPoint` interfaces
-- Handles concurrent load coordination (`LockoutMap`)
+- Handles concurrent load coordination (`SpecialPromise` and tag invalidation tracking)
 - Secondary index for tag-based eviction
 
 Clojure is used for:
@@ -221,7 +221,7 @@ Clojure is used for:
 ### Concurrency
 - Single ongoing load per key (Caffeine handles this)
 - If key invalidated during load, load is repeated
-- `LockoutMap` coordinates bulk invalidations
+- `TagInvalidation` coordinates active tag invalidations
 - Loading thread is interrupted on tag invalidation
 
 ### Secondary Index

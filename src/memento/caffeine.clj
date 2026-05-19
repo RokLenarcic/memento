@@ -3,7 +3,7 @@
   {:author "Rok Lenarčič"}
   (:require [memento.base :as b])
   (:import (java.util.concurrent TimeUnit)
-           (memento.base Durations CacheKey EntryMeta ICache Segment)
+           (memento.base CacheEntry Durations CacheKey EntryMeta ICache Segment)
            (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker)
            (memento.caffeine CaffeineCache_ SecondaryIndex SpecialPromise Expiry)
            (memento.mount IMountPoint)))
@@ -19,16 +19,16 @@
           Long/MAX_VALUE
           (.expireAfterUpdate this k v current-time Long/MAX_VALUE)))
       (expireAfterUpdate [this k v current-time current-duration]
-        (if-let [ret (.ttl cache-expiry {} (.getArgs ^CacheKey k) v)]
+        (if-let [ret (.ttl cache-expiry {} (.getArgs ^CacheKey k) (b/unwrap-meta v))]
           (Durations/nanos ret)
-          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) v)]
+          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) (b/unwrap-meta v))]
             (Durations/nanos ret)
             write-default)))
       (expireAfterRead [this k v current-time current-duration]
         (if (instance? SpecialPromise v)
           current-duration
           ;; if fade is not specified, keep current validity (probably set by ttl)
-          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) v)]
+          (if-let [ret (.fade cache-expiry {} (.getArgs ^CacheKey k) (b/unwrap-meta v))]
             (Durations/nanos ret)
             (or read-default current-duration)))))))
 
@@ -131,14 +131,17 @@
 
 (defn to-data [cache]
   (when-let [caffeine (:caffeine-cache cache)]
-    (persistent!
-      (reduce (fn [m [^CacheKey k v]] (assoc-imm-val! m
-                                                      [(.getId k) (.getArgs k)]
-                                                      v
-                                                      #(if (and (instance? EntryMeta %) (nil? (.getV ^EntryMeta %)))
-                                                         nil %)))
-              (transient {})
-              (.asMap ^CaffeineCache_ caffeine)))))
+    ;; Cached values are stored as CacheEntry. Detect stored-nil (CacheEntry with nil
+    ;; value) and emit it as nil; otherwise unwrap to the raw stored value.
+    (let [stored-value (fn [v]
+                         (if (and (instance? CacheEntry v) (nil? (.getValue ^CacheEntry v)))
+                           nil
+                           (b/unwrap-meta v)))]
+      (persistent!
+        (reduce (fn [m [^CacheKey k v]]
+                  (assoc-imm-val! m [(.getId k) (.getArgs k)] v stored-value))
+                (transient {})
+                (.asMap ^CaffeineCache_ caffeine))))))
 
 (defn load-data [cache data-map]
   (.loadData ^CaffeineCache_ (:caffeine-cache cache) data-map)

@@ -6,16 +6,16 @@
   {:author "Rok Lenarčič"}
   (:require [memento.config :as config])
   (:import (clojure.lang AFn)
-           (memento.base EntryMeta ICache LockoutMap)))
+           (memento.base CacheEntry EntryMeta ICache TagInvalidation)))
 
 (def absent "Value that signals absent key." EntryMeta/absent)
 
-(defn unwrap-meta [o] (if (instance? EntryMeta o) (.getV ^EntryMeta o) o))
+(defn unwrap-meta [o] (CacheEntry/unwrap o))
 
-(def ^LockoutMap lockout-map
-  "A LockoutMap. Implementation developers use this to do caching in a fashion that is aware
+(def ^TagInvalidation tag-invalidation
+  "A Tag Invalidation. Implementation developers use this to do caching in a fashion that is aware
    of bulk invalidation. "
-  LockoutMap/INSTANCE)
+  TagInvalidation/INSTANCE)
 
 (def no-cache
   (reify ICache
