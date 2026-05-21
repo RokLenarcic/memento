@@ -1,5 +1,6 @@
 (ns memento.core-test
   (:require [clojure.test :refer :all]
+            [memento.base :as b]
             [memento.core :as m :refer :all]
             [memento.config :as mc]
             [memento.caffeine.config :as mcc])
@@ -540,6 +541,21 @@
     (is (= 2 (c)))
     (is (= 2 @calls))
     (is (= {} (as-map c)))))
+
+(deftest if-cached-failed-load-is-absent-test
+  (let [started (promise)
+        release (promise)
+        c (m/memo (fn []
+                    (deliver started true)
+                    @release
+                    (throw (IOException.)))
+                  inf)
+        loader (future (try (c) (catch IOException e e)))]
+    @started
+    (is (identical? EntryMeta/absent (b/if-cached (m/active-cache c) (.segment c) nil)))
+    (deliver release true)
+    (is (instance? IOException @loader))
+    (is (identical? EntryMeta/absent (b/if-cached (m/active-cache c) (.segment c) nil)))))
 
 (deftest ret-ex-fn-test
   (testing "returns transformed-exception"

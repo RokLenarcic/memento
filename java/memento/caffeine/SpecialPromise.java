@@ -32,17 +32,27 @@ public class SpecialPromise {
             AtomicReferenceFieldUpdater.newUpdater(SpecialPromise.class, Object.class, "result");
     private final CountDownLatch d = new CountDownLatch(1);
     private final ConcurrentLinkedQueue<Object> invalidatedIds = new ConcurrentLinkedQueue<>();
-    private final Thread thread;
+    private volatile Thread thread;
     private final long epoch;
     private volatile Object result;
 
     public SpecialPromise(long epoch) {
         this.epoch = epoch;
+    }
+
+    /**
+     * Mark the current thread as the owning loader thread. Subsequent {@link #await(Object)}
+     * calls from this same thread will throw {@link StackOverflowError} instead of deadlocking,
+     * which catches recursive loads on the same key. Callers that publish a promise into the
+     * map but do not perform the load themselves (e.g. joiners waiting for an external
+     * deliverer) MUST NOT call this method.
+     */
+    public void ownerThread() {
         this.thread = Thread.currentThread();
     }
 
     public Object await(Object stackOverflowContext) throws Throwable {
-        if (thread == Thread.currentThread()) {
+        if (thread != null && thread == Thread.currentThread()) {
             throw new StackOverflowError("Recursive load on key: " + stackOverflowContext);
         }
         Object r;
@@ -101,7 +111,16 @@ public class SpecialPromise {
         RESULT.compareAndSet(this, null, new AltResult(t));
     }
 
-    public Object getNow() throws Throwable {
+    /**
+     * Non-blocking availability probe used by if-cached/as-map style callers.
+     *
+     * Returns {@link EntryMeta#absent} when the promise is still pending, was
+     * invalidated, has not published a result, or completed with an exception.
+     * Unlike {@link #await(Object)}, this method never propagates loader
+     * exceptions: callers are asking whether a usable cached value is available
+     * right now, not joining the load.
+     */
+    public Object getNow() {
         Object r;
         if (d.getCount() != 0) {
             return EntryMeta.absent;
@@ -111,7 +130,7 @@ public class SpecialPromise {
             if (x == null) {
                 return null;
             } else {
-                throw x;
+                return EntryMeta.absent;
             }
         } else {
             return r == null ? EntryMeta.absent : r;
@@ -125,7 +144,10 @@ public class SpecialPromise {
         // invalidate is responsible for removing the entry from the delegate map.
         Object prev = RESULT.getAndSet(this, EntryMeta.absent);
         if (prev != EntryMeta.absent) {
-            thread.interrupt();
+            Thread t = thread;
+            if (t != null) {
+                t.interrupt();
+            }
         }
     }
 

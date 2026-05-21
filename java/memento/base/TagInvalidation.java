@@ -46,7 +46,7 @@ public class TagInvalidation {
             newv = (PersistentHashMap) newMap.persistent();
         } while (!m.compareAndSet(oldMap, newv));
         for (Listener l : listeners) {
-            l.startInvalidation(tagsAndIds, newv);
+            l.startInvalidation(tagsAndIds, epoch);
         }
     }
 
@@ -83,13 +83,13 @@ public class TagInvalidation {
             newv = (PersistentHashMap) newMap.persistent();
         } while (!m.compareAndSet(oldMap, newv));
         for (Listener l : listeners) {
-            l.endInvalidation(tagsAndIds, newv);
+            l.endInvalidation(tagsAndIds, epoch);
         }
     }
 
     public interface Listener {
-        void startInvalidation(Iterable<Object> tagsAndIds, PersistentHashMap epochMap);
+        void startInvalidation(Iterable<Object> tagsAndIds, long epoch);
 
-        void endInvalidation(Iterable<Object> tagsAndIds, PersistentHashMap epochMap);
+        void endInvalidation(Iterable<Object> tagsAndIds, long epoch);
     }
 }

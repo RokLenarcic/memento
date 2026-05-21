@@ -57,6 +57,7 @@ public class CaffeineCache_ {
             Object cached = delegate.asMap().putIfAbsent(key, p);
             if (cached == null) {
                 try {
+                    p.ownerThread();
                     initLoad(p);
                     // calculate value
                     Object result = AFn.applyToHelper(segment.getF(), args);

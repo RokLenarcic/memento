@@ -52,12 +52,19 @@ public interface ICache {
     /**
      * Invalidate all the entries linked to a mount, return Cache.
      * <p>
-     * <b>Concurrency contract:</b> implementations must remove the entry from their
-     * primary key&rarr;value map <i>before</i> signalling any in-flight load promise
-     * for that key (e.g. via {@code SpecialPromise.invalidate()}). This ordering
-     * guarantees that awaking joiners which re-loop through the map either find the
-     * entry absent or find a freshly-published {@link CacheEntry} from a subsequent
-     * load, but never observe the just-invalidated promise's value.
+     * <b>Concurrency contract:</b> implementations must guarantee that joiners awoken by
+     * any signal sent to an in-flight load for this key either (a) observe the entry as
+     * absent from the cache's primary store and re-load, or (b) observe a freshly-published
+     * {@link CacheEntry} from a load that started <i>after</i> this invalidation. They must
+     * never observe the value of the just-invalidated promise.
+     * <p>
+     * Caffeine-backed implementations achieve this by removing the entry from the delegate
+     * map <i>before</i> signalling {@code SpecialPromise.invalidate()} — the map-level CAS
+     * interlocks with the loader's subsequent {@code deliver}/publish step. Backends without
+     * such atomic interlock (e.g. Redis) achieve it by signalling the promise first: the
+     * loader's {@code deliver} then returns false and the loader abandons its write, after
+     * which the primary store is cleared. Either ordering is acceptable provided the above
+     * guarantee holds.
      * <p>
      * Note: in-flight loaders may have their thread interrupt flag set as a side
      * effect of this call. Loader paths that catch {@link Throwable} clear the
