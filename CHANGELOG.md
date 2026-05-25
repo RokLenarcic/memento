@@ -5,9 +5,6 @@
 - `if-cached` no longer rethrows exceptions from a failed in-flight load on the
   same key; it returns absent (cache miss) instead. Callers probing for a cached
   value will no longer surface unrelated loader errors.
-
-## 2.1.73
-
 - Fix: an invalidation (by key or by tag) that arrives while a load for the
   same key is in flight is now reliably observed. Concurrent callers waiting
   on the in-flight load will re-load instead of receiving the stale value.
