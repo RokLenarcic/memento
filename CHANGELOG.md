@@ -8,15 +8,11 @@
 
 ## 2.1.73
 
-- Rework internal invalidation tracking around explicit invalidation epochs and tag invalidation state.
-- Improve Caffeine tag invalidation handling for in-flight loads and secondary index cleanup.
-- `SpecialPromise.result` is now updated through an atomic CAS field updater so
-  concurrent `deliver` and `invalidate` calls cannot lose each other's writes;
-  `invalidate` always wins and `deliver` reports whether it actually published.
-- After a load publishes its canonical `CacheEntry` to the delegate map, the
-  loader now rejects its `SpecialPromise` so joiners blocked in `await()`
-  re-loop through the map and observe the published entry (or any subsequent
-  invalidation) instead of taking the value from the promise channel.
+- Fix: an invalidation (by key or by tag) that arrives while a load for the
+  same key is in flight is now reliably observed. Concurrent callers waiting
+  on the in-flight load will re-load instead of receiving the stale value.
+- More robust handling of tagged entries when tags are invalidated during a
+  load, including cleanup of secondary indexes.
 
 ## 2.0.72
 
