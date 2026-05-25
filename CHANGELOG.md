@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.74
+
+- `if-cached` no longer rethrows exceptions from a failed in-flight load on the
+  same key; it returns absent (cache miss) instead. Callers probing for a cached
+  value will no longer surface unrelated loader errors.
+
 ## 2.1.73
 
 - Rework internal invalidation tracking around explicit invalidation epochs and tag invalidation state.
