@@ -11,6 +11,7 @@ import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 public class SecondaryIndex {
@@ -18,6 +19,7 @@ public class SecondaryIndex {
     private final ConcurrentHashMap<Object, Set<IndexEntry>> lookup;
 
     public SecondaryIndex(int concurrency) {
+        ensureCleanerStarted();
         this.lookup = new ConcurrentHashMap<>(16, 0.75f, concurrency);
     }
 
@@ -140,11 +142,15 @@ public class SecondaryIndex {
         }
     }
 
-    public static final Thread cleanerThread = new Thread(new Cleaner(), "Memento Secondary Index Cleaner");
+    private static volatile Thread cleanerThread;
+    private static final AtomicBoolean cleanerStarted = new AtomicBoolean(false);
 
-    static {
-        cleanerThread.setDaemon(true);
-        cleanerThread.start();
+    public static void ensureCleanerStarted() {
+        if (cleanerStarted.compareAndSet(false, true)) {
+            cleanerThread = new Thread(new Cleaner(), "Memento Secondary Index Cleaner");
+            cleanerThread.setDaemon(true);
+            cleanerThread.start();
+        }
     }
 
 
