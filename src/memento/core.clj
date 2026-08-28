@@ -6,8 +6,7 @@
             [memento.multi :as multi]
             [memento.mount :as mount])
   (:import (java.util IdentityHashMap)
-           (java.util.function BiFunction)
-           (memento.base EntryMeta ICache InvalidationClock)
+           (memento.base EntryMeta ICache)
            (memento.mount Cached IMountPoint)))
 
 (defn do-not-cache
@@ -176,20 +175,7 @@
 
   Expects a collection of [tag id] pairs."
   [& tag+ids]
-  (let [cache->ids (IdentityHashMap.)
-        _ (doseq [[tag tag+ids] (group-by first tag+ids)
-                  cache (caches-by-tag tag)]
-            (.compute
-              cache->ids
-              cache
-              (reify BiFunction
-                (apply [this k v] (into (or v []) tag+ids)))))
-        epoch (InvalidationClock/claimInvalidationEpoch)]
-    (try
-      (.startInvalidation base/tag-invalidation tag+ids epoch)
-      (run! (fn [e] (base/invalidate-ids (key e) (val e))) cache->ids)
-      (finally
-        (.endInvalidation base/tag-invalidation tag+ids epoch)))))
+  (base/invalidate-secondary-all! tag+ids))
 
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."

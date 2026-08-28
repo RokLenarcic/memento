@@ -5,8 +5,8 @@
             [memento.config :as mc]
             [memento.caffeine.config :as mcc])
   (:import (java.io IOException)
-           (memento.base EntryMeta ICache TagInvalidation)
-           (memento.caffeine Expiry)
+           (memento.base EntryMeta ICache)
+           (memento.caffeine Expiry SecondaryIndex)
            (memento.mount IMountPoint)))
 
 (def inf {mc/type mc/caffeine})
@@ -296,27 +296,35 @@
     (is (= {} (do (memo-clear-tag! :tag :new) (as-map f))))))
 
 (deftest overlapping-tag-invalidation-epochs-test
-  (let [tag-invalidation (TagInvalidation.)
-        tag-idents #{[:tag 1]}]
-    (.startInvalidation tag-invalidation tag-idents 10)
-    (is (= 10 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (.startInvalidation tag-invalidation tag-idents 20)
-    (is (= 20 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (.endInvalidation tag-invalidation tag-idents 10)
-    (is (= 20 (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (.endInvalidation tag-invalidation tag-idents 20)
+  (let [tag-invalidation SecondaryIndex/INSTANCE
+        tag-idents #{[:tag 1]}
+        older (.startInvalidation tag-invalidation tag-idents)
+        newer (.startInvalidation tag-invalidation tag-idents)]
+    (is (= newer (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (.endInvalidation tag-invalidation tag-idents older)
+    (is (= newer (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+    (.endInvalidation tag-invalidation tag-idents newer)
     (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation tag-idents)))
     (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation nil)))
-    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation #{})))))
+    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation #{}))))
+  (testing "older invalidation remains visible when a newer one finishes first"
+    (let [tag-invalidation SecondaryIndex/INSTANCE
+          tag-idents #{[:tag 1]}
+          older (.startInvalidation tag-invalidation tag-idents)
+          newer (.startInvalidation tag-invalidation tag-idents)]
+      (.endInvalidation tag-invalidation tag-idents newer)
+      (is (= older (.lastInvalidatedEpoch tag-invalidation tag-idents)))
+      (.endInvalidation tag-invalidation tag-idents older)
+      (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation tag-idents))))))
 
 (deftest tagged-invalidation-across-caches-test
   (testing "tag invalidation clears matching entries across cache instances"
     (let [calls-a (atom 0)
           calls-b (atom 0)
           a (m/memo (fn [] (m/with-tag-id (swap! calls-a inc) :shared 1))
-                    (assoc inf mc/tags :shared))
+                    inf)
           b (m/memo (fn [] (m/with-tag-id (swap! calls-b inc) :shared 1))
-                    (assoc inf mc/tags :shared))]
+                    inf)]
       (is (= [1 1] [(a) (b)]))
       (is (= {nil 1} (as-map a)))
       (is (= {nil 1} (as-map b)))
@@ -326,6 +334,196 @@
       (is (= [2 2] [(a) (b)]))
       (is (= {nil 2} (as-map a)))
       (is (= {nil 2} (as-map b))))))
+
+(deftest tagged-invalidation-across-scoped-caches-test
+  (let [calls (atom 0)
+        root-cache (create inf)
+        scoped-a (create inf)
+        scoped-b (create inf)
+        f (m/bind (fn [] (m/with-tag-id (swap! calls inc) :user-id 1))
+                  {mc/tags :scoped}
+                  root-cache)
+        ready-a (promise)
+        ready-b (promise)
+        release (promise)
+        run-in-scope (fn [cache ready]
+                       (future
+                         (with-caches :scoped (constantly cache)
+                           (f)
+                           (deliver ready true)
+                           @release
+                           (f))))]
+    (is (= 1 (f)))
+    (let [result-a (run-in-scope scoped-a ready-a)
+          result-b (run-in-scope scoped-b ready-b)]
+      @ready-a
+      @ready-b
+      (is (= 3 @calls))
+      (memo-clear-tag! :user-id 1)
+      (is (empty? (b/as-map root-cache)))
+      (is (empty? (b/as-map scoped-a)))
+      (is (empty? (b/as-map scoped-b)))
+      (deliver release true)
+      (is (number? @result-a))
+      (is (number? @result-b))
+      (is (= 5 @calls))
+      (is (number? (f)))
+      (is (= 6 @calls)))))
+
+(deftest secondary-index-does-not-require-mount-tag-test
+  (let [tag :unmounted-secondary-key
+        cache (create inf)
+        seed (m/bind (fn [] (m/with-tag-id :stale tag 1)) {} cache)
+        tag-id [tag 1]]
+    (seed)
+    (is (= 1 (count (b/as-map cache))))
+    (memo-clear-tags! tag-id)
+    (is (empty? (b/as-map cache)))))
+
+(deftest secondary-invalidation-dispatch-test
+  (let [events (atom [])
+        ids [[:dispatch 1]]
+        first-type ::first-invalidator
+        second-type ::second-invalidator]
+    (try
+      (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! first-type
+                  (fn [_ actual-ids]
+                    (swap! events conj [:start first-type actual-ids])
+                    :first-started))
+      (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! second-type
+                  (fn [_ actual-ids]
+                    (swap! events conj [:start second-type actual-ids])
+                    :second-started))
+      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! first-type
+                  (fn [_ actual-ids state]
+                    (swap! events conj [:invalidate first-type actual-ids state])
+                    (throw (ex-info "first backend failed" {}))))
+      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! second-type
+                  (fn [_ actual-ids state]
+                    (swap! events conj [:invalidate second-type actual-ids state])
+                    :second-invalidated))
+      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! first-type
+                  (fn [_ actual-ids state]
+                    (swap! events conj [:end first-type actual-ids state])))
+      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! second-type
+                  (fn [_ actual-ids state]
+                    (swap! events conj [:end second-type actual-ids state])))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"first backend failed"
+                            (apply memo-clear-tags! ids)))
+      (is (= [:start :start :invalidate :invalidate :end :end]
+             (mapv first @events)))
+      (is (every? #(= ids (nth % 2)) @events))
+      (is (= #{[first-type :first-started]
+               [second-type :second-started]}
+             (set (map (juxt second #(nth % 3))
+                       (filter #(= :invalidate (first %)) @events)))))
+      (is (= #{[first-type :first-started]
+               [second-type :second-invalidated]}
+             (set (map (juxt second #(nth % 3))
+                       (filter #(= :end (first %)) @events)))))
+      (finally
+        (remove-method b/start-secondary-invalidation! first-type)
+        (remove-method b/start-secondary-invalidation! second-type)
+        (remove-method b/invalidate-secondary! first-type)
+        (remove-method b/invalidate-secondary! second-type)
+        (remove-method b/end-secondary-invalidation! first-type)
+        (remove-method b/end-secondary-invalidation! second-type)))))
+
+(deftest caffeine-lockout-starts-before-slow-backend-invalidation-test
+  (let [backend-type ::slow-backend
+        started (promise)
+        release (promise)
+        load-started (promise)
+        load-release (promise)
+        calls (atom 0)
+        f (memo (fn []
+                  (deliver load-started true)
+                  @load-release
+                  (with-tag-id (swap! calls inc) :phase 1))
+                inf)]
+    (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! backend-type
+                (fn [_ _] nil))
+    (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! backend-type
+                (fn [_ _ state]
+                  (deliver started true)
+                  @release
+                  state))
+    (try
+      (let [invalidation (future (memo-clear-tag! :phase 1))]
+        @started
+        (let [load (future (f))]
+          @load-started
+          (deliver release true)
+          @invalidation
+          (deliver load-release true)
+          (is (= 2 @load))
+          (is (= 2 @calls))))
+      (finally
+        (remove-method b/start-secondary-invalidation! backend-type)
+        (remove-method b/invalidate-secondary! backend-type)))))
+
+(deftest caffeine-load-finishing-during-active-invalidation-retries-test
+  (let [backend-type ::slow-end
+        invalidated (promise)
+        release-invalidation (promise)
+        load-started (promise)
+        release-load (promise)
+        retry-started (promise)
+        release-retry (promise)
+        calls (atom 0)
+        f (memo (fn []
+                  (let [n (swap! calls inc)]
+                    (case n
+                      1 (do (deliver load-started true) @release-load)
+                      2 (do (deliver retry-started true) @release-retry)
+                      nil)
+                    (with-tag-id n :active-finish 1)))
+                inf)]
+    (try
+      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! backend-type
+                  (fn [_ _ state]
+                    (deliver invalidated true)
+                    @release-invalidation
+                    state))
+      (let [invalidation (future (memo-clear-tag! :active-finish 1))]
+        @invalidated
+        (let [load (future (f))]
+          @load-started
+          (deliver release-load true)
+          @retry-started
+          (deliver release-invalidation true)
+          @invalidation
+          (deliver release-retry true)
+          (is (= 3 @load))
+          (is (= 3 @calls))))
+      (finally
+        (remove-method b/invalidate-secondary! backend-type)))))
+
+(deftest secondary-invalidation-start-failure-skips-invalidators-test
+  (let [events (atom [])
+        good ::good-start
+        bad ::bad-start]
+    (try
+      (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! good
+                  (fn [_ _] (swap! events conj :good-start) :state))
+      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! good
+                  (fn [_ _ state] (swap! events conj [:good-end state])))
+      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! good
+                  (fn [_ _ state] (swap! events conj :good-invalidate) state))
+      (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! bad
+                  (fn [_ _] (swap! events conj :bad-start) (throw (ex-info "start failed" {}))))
+      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! bad
+                  (fn [_ _ state] (swap! events conj :bad-invalidate) state))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"start failed"
+                            (memo-clear-tag! :start-failure 1)))
+      (is (not-any? #{:good-invalidate :bad-invalidate} @events))
+      (is (some #{[:good-end :state]} @events))
+      (finally
+        (doseq [multifn [b/start-secondary-invalidation!
+                         b/invalidate-secondary!
+                         b/end-secondary-invalidation!]
+                cache-type [good bad]]
+          (remove-method multifn cache-type))))))
 
 (deftest fire-event-test
   (testing "event is fired on referenced cache"
@@ -420,7 +618,7 @@
                       (while (not @release?)
                         (Thread/onSpinWait))
                       (m/with-tag-id (swap! a inc) :yy 1))
-                    (assoc inf mc/tags :yy))
+                    inf)
           load (future (c))]
       @started
       (m/memo-clear-tag! :yy 1)
@@ -437,9 +635,9 @@
                       (while (not @release?)
                         (Thread/onSpinWait))
                       (m/with-tag-id (swap! a-calls inc) :zz 1))
-                    (assoc inf mc/tags :zz))
+                    inf)
           b (m/memo (fn [] (m/with-tag-id (swap! b-calls inc) :zz 1))
-                    (assoc inf mc/tags :zz))
+                    inf)
           load (future (a))]
       (is (= 1 (b)))
       @started

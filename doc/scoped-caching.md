@@ -230,6 +230,10 @@ This means:
 - Using `constantly` makes all tagged functions share one cache
 - Using a function that creates new caches gives each function its own cache
 
+Secondary-index invalidation is independent of mount tags. Cache backends track their own
+indexed entries, so `memo-clear-tag!` and `memo-clear-tags!` also invalidate matching
+entries held by live scoped caches when called from a thread outside those scopes.
+
 ## Comparison of Multi-Cache Types
 
 When combining request-scoped and long-term caches, you have three options:

@@ -62,13 +62,13 @@
       (c 1)
       (c 2)
       ;; repeatedly access entry 1 to keep it alive past its 1s fade
-      (Thread/sleep 600)
+      (Thread/sleep 400)
       (c 1) ; access resets fade timer
-      (Thread/sleep 600)
+      (Thread/sleep 400)
       (c 1) ; access resets fade timer again
-      (Thread/sleep 600)
+      (Thread/sleep 400)
       ;; entry 1 was accessed recently so fade hasn't elapsed
-      ;; entry 2 was never re-accessed but has a 2s fade, so 1.8s total is under 2s
+      ;; entry 2 was never re-accessed but has a 2s fade, so 1.2s total is under 2s
       (is (= {'(1) 1 '(2) 2} (m/as-map c)))
       ;; now let both expire
       (Thread/sleep 2100)
@@ -192,17 +192,17 @@
 (deftest meta-expiry-ttl-and-fade-test
   (testing "Entry with both TTL and fade in metadata: TTL controls write expiry, fade controls read expiry"
     (let [c (m/memo
-             (fn [x] (with-meta {:val x} {mc/ttl 3 mc/fade 1}))
+              (fn [x] (with-meta {:val x} {mc/ttl 6 mc/fade 2}))
              (assoc inf mcc/expiry mcc/meta-expiry))]
       (c 1)
       ;; keep accessing to reset fade timer
-      (Thread/sleep 600)
+      (Thread/sleep 400)
       (c 1)
-      (Thread/sleep 600)
-      ;; fade is 1s and we accessed 0.6s ago, so still alive
+      (Thread/sleep 400)
+      ;; fade is 2s and we accessed 0.4s ago, so still alive
       (is (= {'(1) {:val 1}} (m/as-map c)))
       ;; stop accessing and let fade expire
-      (Thread/sleep 1100)
+      (Thread/sleep 2100)
       (is (= {} (m/as-map c))))))
 
 ;; ---------------------------------------------------------------------------
@@ -260,10 +260,9 @@
 (deftest variable-expiry-with-tag-id-test
   (testing "with-tag-id works alongside variable expiry for tag-based invalidation"
     (let [c (m/memo
-             (fn [x]
-               (m/with-tag-id {:val x} :my-tag x))
-              ;; mount tag :my-tag is needed so memo-clear-tag! can find the cache
-             :my-tag
+              (fn [x]
+                (m/with-tag-id {:val x} :my-tag x))
+              {}
              (assoc inf mcc/expiry
                     (reify Expiry
                       (ttl [_ _ _k _v] 30) ; long TTL so entries won't expire during test

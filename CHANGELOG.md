@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Secondary-index invalidation is now implemented by cache backend methods via
+  the `start-secondary-invalidation!`, `invalidate-secondary!`, and
+  `end-secondary-invalidation!` lifecycle; mount tags are no longer required.
+- Core no longer owns a universal invalidation epoch. Each cache backend owns its
+  secondary-index storage domains and concurrency model.
+- **Breaking change for cache implementors:** removed `invalidateIds` from
+  `ICache` and removed `memento.base/invalidate-ids`.
+
 ## 2.1.74
 
 - `if-cached` no longer rethrows exceptions from a failed in-flight load on the

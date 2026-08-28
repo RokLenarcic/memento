@@ -78,9 +78,9 @@ This creates an N×M maintenance burden:
 Tag-based invalidation decouples producers from consumers. They only need to agree on a tag name:
 
 ```clojure
-;; CACHED FUNCTIONS: tag with :user, don't care who invalidates
+;; CACHED FUNCTIONS: index returned entries, don't care who invalidates
 (m/defmemo get-user
-  {mc/type mc/caffeine, mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-user user-id)
       (m/with-tag-id :user user-id)))
@@ -88,25 +88,23 @@ Tag-based invalidation decouples producers from consumers. They only need to agr
 ;; MODIFYING FUNCTIONS: invalidate :user tag, don't care who's cached  
 (defn update-user! [user-id data]
   (db/update-user! user-id data)
-  (m/memo-clear-tag! :user user-id))  ; Clears ALL :user-tagged caches
+  (m/memo-clear-tag! :user user-id))  ; Clears all entries indexed by this pair
 ```
 
 Now you can add cached functions or modifiers independently.
 
 ### Step-by-Step Setup
 
-#### Step 1: Add Tags to Functions
+#### Step 1: Define Cached Functions
 
 ```clojure
 (m/defmemo get-user
-  {mc/type mc/caffeine
-   mc/tags [:user]}  ; This function participates in :user invalidation
+  {mc/type mc/caffeine}
   [user-id]
   (db/fetch-user user-id))
 
 (m/defmemo get-user-orders
-  {mc/type mc/caffeine
-   mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (db/fetch-orders user-id))
 ```
@@ -117,15 +115,13 @@ Use `m/with-tag-id` to associate cached values with entity IDs:
 
 ```clojure
 (m/defmemo get-user
-  {mc/type mc/caffeine
-   mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-user user-id)
       (m/with-tag-id :user user-id)))  ; "This result is about user `user-id`"
 
 (m/defmemo get-user-orders
-  {mc/type mc/caffeine
-   mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-orders user-id)
       (m/with-tag-id :user user-id)))
@@ -134,7 +130,7 @@ Use `m/with-tag-id` to associate cached values with entity IDs:
 #### Step 3: Invalidate by Tag + ID
 
 ```clojure
-;; Clears ALL entries tagged with [:user 123] from ALL :user-tagged functions
+;; Clears every entry indexed by [:user 123]
 (m/memo-clear-tag! :user 123)
 ```
 
@@ -146,8 +142,7 @@ A cached value can be tagged with multiple entity IDs. This is essential for agg
 
 ```clojure
 (m/defmemo get-order
-  {mc/type mc/caffeine
-   mc/tags [:user :order]}
+  {mc/type mc/caffeine}
   [order-id]
   (let [order (db/fetch-order order-id)]
     (-> order
@@ -165,8 +160,7 @@ Consider a dashboard showing the last 10 users who logged in. If any of those us
 
 ```clojure
 (m/defmemo get-recent-users-dashboard
-  {mc/type mc/caffeine
-   mc/tags [:user]}
+  {mc/type mc/caffeine}
   []
   (let [users (db/fetch-recent-users 10)]
     ;; Tag with ALL user IDs that appear in this cached result
@@ -193,7 +187,6 @@ Instead of adding `with-tag-id` inside your function, use `ret-fn` to separate c
 
 (m/defmemo get-user
   {mc/type mc/caffeine
-   mc/tags [:user]
    mc/ret-fn tag-user-data}
   [user-id]
   (db/fetch-user user-id))  ; Clean function, no caching logic
@@ -317,7 +310,7 @@ If multiple threads request the same uncached key simultaneously, only one actua
 
 ### Invalidation During Load
 
-If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when a tag is invalidated.
+If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when a tag is invalidated. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
 
 ### The Call Tree Problem
 
@@ -346,7 +339,7 @@ When you invalidate both caches, there's a race condition:
 
 #### Tag-Based Invalidation with Lockout
 
-When using tag-based invalidation (`memo-clear-tag!`), Memento uses locking mechanisms to coordinate invalidation across all tagged functions. This is a best-effort solution - it significantly reduces the window for race conditions but cannot eliminate them entirely in all edge cases.
+When using secondary-index invalidation (`memo-clear-tag!`), Memento uses an epoch lockout while each loaded cache backend clears its own indexes. This coordinates concurrent loads without relying on mount tags.
 
 ```clojure
 ;; Tag-based invalidation coordinates across functions

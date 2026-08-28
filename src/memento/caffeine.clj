@@ -32,11 +32,6 @@
             (Durations/nanos ret)
             (or read-default current-duration)))))))
 
-(defn conf->sec-index
-  "Creates secondary index for evictions"
-  [{:memento.core/keys [concurrency]}]
-  (SecondaryIndex. (or concurrency 4)))
-
 (defn ^Caffeine conf->builder
   "Creates and configures common parameters on the builder."
   [{:memento.core/keys [initial-capacity size< ttl fade]
@@ -91,9 +86,6 @@
   (invalidate [this segment args] (.invalidate caffeine-cache ^Segment segment args)
     this)
   (invalidateAll [this] (.invalidateAll caffeine-cache) this)
-  (invalidateIds [this ids]
-    (.invalidateIds caffeine-cache ids)
-    this)
   (addEntries [this segment args-to-vals]
     (.addEntries caffeine-cache segment args-to-vals)
     this)
@@ -111,11 +103,20 @@
 
 (defmethod b/new-cache :memento.core/caffeine [conf]
   (->CaffeineCache conf (CaffeineCache_.
-                          (conf->builder conf)
-                          (:memento.core/key-fn conf)
-                          (:memento.core/ret-fn conf)
-                          (:memento.core/ret-ex-fn conf)
-                          (conf->sec-index conf))))
+                           (conf->builder conf)
+                           (:memento.core/key-fn conf)
+                           (:memento.core/ret-fn conf)
+                           (:memento.core/ret-ex-fn conf))))
+
+(defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ ids]
+  (.startInvalidation SecondaryIndex/INSTANCE ids))
+
+(defmethod b/invalidate-secondary! :memento.core/caffeine [_ ids epoch]
+  (.invalidate SecondaryIndex/INSTANCE ids epoch)
+  epoch)
+
+(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ ids epoch]
+  (.endInvalidation SecondaryIndex/INSTANCE ids epoch))
 
 (defn stats
   "Return caffeine stats for the cache if it is a caffeine Cache.

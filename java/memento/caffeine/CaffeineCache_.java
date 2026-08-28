@@ -8,7 +8,6 @@ import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import memento.base.*;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
 
@@ -16,13 +15,11 @@ public class CaffeineCache_ {
 
     private final BiFunction<Segment, ISeq, CacheKey> keyFn;
 
-    private final SecondaryIndex secIndex;
     private final IFn retFn;
 
     private final IFn retExFn;
 
     private final Cache<CacheKey, Object> delegate;
-    private final Set<SpecialPromise> loads = ConcurrentHashMap.newKeySet();
 
     private volatile long cacheEpoch = InvalidationClock.NO_INVALIDATION_EPOCH;
 
@@ -30,80 +27,69 @@ public class CaffeineCache_ {
         return Long.max(segment.getInvalidationEpoch(), cacheEpoch);
     }
 
-    private long lastInvalidation(Segment segment, IPersistentSet tagsAndIds) {
-        long epoch = Long.max(segment.getInvalidationEpoch(), cacheEpoch);
-        return Long.max(epoch, TagInvalidation.INSTANCE.lastInvalidatedEpoch(tagsAndIds));
+    private long lastInvalidation(Segment segment, IPersistentSet ids) {
+        return Long.max(lastInvalidation(segment), SecondaryIndex.INSTANCE.lastInvalidatedEpoch(ids));
     }
 
-    public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn, SecondaryIndex secIndex) {
+    public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn) {
         this.keyFn = keyFn == null ?
                 (segment, args) -> new CacheKey(segment.getId(), segment.getKeyFn().invoke(args)) :
                 (segment, args) -> new CacheKey(segment.getId(), keyFn.invoke(segment.getKeyFn().invoke(args)));
         this.retFn = retFn;
         this.delegate = builder.build();
-        this.secIndex = secIndex;
         this.retExFn = retExFn;
-    }
-
-    private void initLoad(SpecialPromise promise) {
-        loads.add(promise);
     }
 
     public Object cached(Segment segment, ISeq args) throws Throwable {
         CacheKey key = keyFn.apply(segment, args);
         do {
-            SpecialPromise p = new SpecialPromise(InvalidationClock.current());
-            // check for ongoing load
-            Object cached = delegate.asMap().putIfAbsent(key, p);
+            SpecialPromise promise = new SpecialPromise(InvalidationClock.current());
+            Object cached = delegate.asMap().putIfAbsent(key, promise);
             if (cached == null) {
+                SecondaryIndex.LoadEntry load = SecondaryIndex.INSTANCE.addLoad(this, promise);
                 try {
-                    p.ownerThread();
-                    initLoad(p);
+                    promise.ownerThread();
                     // calculate value
                     Object result = AFn.applyToHelper(segment.getF(), args);
                     if (retFn != null) {
                         result = retFn.invoke(args, result);
                     }
-                    if (p.deliver(result, lastInvalidation(segment))) {
+                    if (promise.deliver(result, lastInvalidation(segment))) {
                         if (result instanceof EntryMeta && ((EntryMeta) result).isNoCache()) {
-                            delegate.asMap().remove(key, p);
+                            IPersistentSet ids = ((EntryMeta) result).getTagIdents();
+                            if (!SecondaryIndex.INSTANCE.finishLoad(load, ids, () -> delegate.asMap().remove(key, promise))) {
+                                delegate.asMap().remove(key, promise);
+                                promise.reject();
+                                continue;
+                            }
                         } else {
                             CacheEntry entry = CacheEntry.fromResult(result, InvalidationClock.claimWriteEpoch());
                             // if valid add to secondary index
-                            secIndex.add(key, entry);
-                            if (p.isInvalid() || p.hasInvalidatedTagId(entry.getTagIdents()) || entry.getWriteEpoch() <= lastInvalidation(segment)) {
-                                secIndex.removeKeys(key, entry);
-                                delegate.asMap().remove(key, p);
+                            SecondaryIndex.INSTANCE.add(this, key, entry);
+                            if (!SecondaryIndex.INSTANCE.finishLoad(load, entry.getTagIdents(),
+                                                                   () -> delegate.asMap().replace(key, promise, entry))) {
+                                SecondaryIndex.INSTANCE.removeKeys(this, key, entry);
+                                delegate.asMap().remove(key, promise);
+                                promise.reject();
                                 continue;
                             }
-                            if (!delegate.asMap().replace(key, p, entry)) {
-                                secIndex.removeKeys(key, entry);
-                                p.reject();
-                                continue;
-                            }
-                            // Publication of the CacheEntry to the delegate map is the
-                            // sole source of truth for the value. Reject the promise so
-                            // joiners blocked in await() re-loop and revalidate against
-                            // the map (or its successor) instead of taking our value via
-                            // the promise channel.
-                            p.reject();
                         }
                     } else {
-                        delegate.asMap().remove(key, p);
+                        delegate.asMap().remove(key, promise);
                         continue;
                     }
                     return EntryMeta.unwrap(result);
                 } catch (Throwable t) {
-                    delegate.asMap().remove(key, p);
-                    if (p.isInvalid()) {
+                    delegate.asMap().remove(key, promise);
+                    if (promise.isInvalid() || promise.hasInvalidatedIds()) {
                         Thread.interrupted();
                     } else {
-                        p.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
+                        promise.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
                         throw t;
                     }
                 } finally {
-                    loads.remove(p);
-                    p.releaseResult();
+                    SecondaryIndex.INSTANCE.removeLoad(load);
+                    promise.releaseResult();
                 }
             } else {
                 // join into ongoing load
@@ -174,39 +160,18 @@ public class CaffeineCache_ {
         delegate.invalidateAll();
     }
 
-    public void invalidateIds(Iterable<Object> ids) {
-        ArrayList<Object> idList = new ArrayList<>();
-        for (Object id : ids) {
-            idList.add(id);
-        }
-        final long invalidationEpoch = InvalidationClock.claimInvalidationEpoch();
-        loads.forEach(load -> load.addInvalidIds(idList));
-        ConcurrentMap<CacheKey, Object> map = delegate.asMap();
-        for (Object id : idList) {
-            secIndex.removeIf(id, indexEntry -> {
-                CacheKey k = indexEntry.getKey();
-                Object current = map.get(k);
-                if (current instanceof SpecialPromise) {
-                    if (map.remove(k, current)) {
-                        ((SpecialPromise) current).invalidate();
-                        return true;
-                    }
-                    return false;
-                } else if (current != null) {
-                    CacheEntry entry = (CacheEntry) current;
-                    if (entry.getWriteEpoch() != indexEntry.getWriteEpoch()) {
-                        return true;
-                    } else if (entry.getWriteEpoch() < invalidationEpoch && entry.hasTagIdent(id)) {
-                        map.remove(k, current);
-                        return true;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return true;
-                }
-            });
-        }
+    public boolean invalidateIndexed(CacheKey key, long indexedEpoch, long invalidationEpoch) {
+        Object current = delegate.asMap().computeIfPresent(key, (ignored, value) -> {
+            if (value instanceof SpecialPromise) {
+                ((SpecialPromise) value).invalidate();
+                return null;
+            }
+            CacheEntry entry = (CacheEntry) value;
+            return entry.getWriteEpoch() == indexedEpoch && entry.getWriteEpoch() < invalidationEpoch
+                   ? null
+                   : entry;
+        });
+        return current == null || ((CacheEntry) current).getWriteEpoch() != indexedEpoch;
     }
 
     public void addEntries(Segment segment, IPersistentMap argsToVals) {
@@ -217,9 +182,7 @@ public class CaffeineCache_ {
             if (val instanceof EntryMeta && ((EntryMeta) val).isNoCache()) {
                 delegate.invalidate(key);
             } else {
-                CacheEntry cacheEntry = CacheEntry.fromResult(val, InvalidationClock.claimWriteEpoch());
-                delegate.put(key, cacheEntry);
-                secIndex.add(key, cacheEntry);
+                putEntry(key, CacheEntry.fromResult(val, InvalidationClock.claimWriteEpoch()));
             }
         }
     }
@@ -239,11 +202,29 @@ public class CaffeineCache_ {
             if (v instanceof EntryMeta && ((EntryMeta) v).isNoCache()) {
                 delegate.invalidate(key);
             } else {
-                CacheEntry entry = CacheEntry.fromResult(v, InvalidationClock.claimWriteEpoch());
-                delegate.put(key, entry);
-                secIndex.add(key, entry);
+                putEntry(key, CacheEntry.fromResult(v, InvalidationClock.claimWriteEpoch()));
             }
         });
+    }
+
+    private void putEntry(CacheKey key, CacheEntry entry) {
+        if (entry.getTagIdents().count() == 0) {
+            delegate.put(key, entry);
+            return;
+        }
+        SpecialPromise invalidationTarget = new SpecialPromise(InvalidationClock.current());
+        SecondaryIndex.LoadEntry load = SecondaryIndex.INSTANCE.addLoad(this, invalidationTarget);
+        try {
+            delegate.put(key, entry);
+            SecondaryIndex.INSTANCE.add(this, key, entry);
+            if (!SecondaryIndex.INSTANCE.finishLoad(load, entry.getTagIdents(), () -> true)) {
+                SecondaryIndex.INSTANCE.removeKeys(this, key, entry);
+                delegate.asMap().remove(key, entry);
+            }
+        } finally {
+            SecondaryIndex.INSTANCE.removeLoad(load);
+            invalidationTarget.releaseResult();
+        }
     }
 
     public static RemovalListener<CacheKey, Object> listener(IFn removalListener) {

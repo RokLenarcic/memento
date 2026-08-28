@@ -2,7 +2,6 @@ package memento.caffeine;
 
 import clojure.lang.IPersistentSet;
 import memento.base.EntryMeta;
-import memento.base.TagInvalidation;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -72,21 +71,13 @@ public class SpecialPromise {
         }
     }
 
-    // Returns true if delivered object is viable AND was published (i.e. CAS won).
+    // Returns true if the load predates no segment/cache invalidation and won the result CAS.
     public boolean deliver(Object r, long latestInvalidation) {
         if (result == EntryMeta.absent) {
             Thread.interrupted();
             return false;
         }
-        IPersistentSet tagIdents = null;
-        if (r instanceof EntryMeta) {
-            tagIdents = ((EntryMeta) r).getTagIdents();
-            latestInvalidation = Long.max(latestInvalidation, TagInvalidation.INSTANCE.lastInvalidatedEpoch(tagIdents));
-        }
         if (epoch <= latestInvalidation) {
-            RESULT.compareAndSet(this, null, EntryMeta.absent);
-            return false;
-        } else if (tagIdents != null && hasInvalidatedTagId(tagIdents)) {
             RESULT.compareAndSet(this, null, EntryMeta.absent);
             return false;
         }
@@ -101,9 +92,8 @@ public class SpecialPromise {
 
 
     public void reject() {
-        // Force absent regardless of any previously-published value. Used by the loader
-        // after it has published the canonical CacheEntry to the delegate map, to redirect
-        // joiners blocked in await() back through the map for revalidation.
+        // Force absent regardless of any previously-published value when publication
+        // validation fails, so joiners cannot observe a discarded result.
         RESULT.set(this, EntryMeta.absent);
     }
 
@@ -169,6 +159,10 @@ public class SpecialPromise {
             }
         }
         return false;
+    }
+
+    public boolean hasInvalidatedIds() {
+        return !invalidatedIds.isEmpty();
     }
 
     public void addInvalidIds(Iterable<Object> ids) {

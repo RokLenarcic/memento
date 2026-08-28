@@ -85,27 +85,6 @@ public interface ICache {
     ICache invalidateAll();
 
     /**
-     * Invalidate entries with these secondary IDs, returns Cache. Each ID is a pair of tag and object.
-     * <p>
-     * <b>Concurrency contract:</b> this method coordinates only with loads that are already
-     * registered within this cache (e.g. the local Caffeine {@code loads} set). It does
-     * <i>not</i> by itself update {@link TagInvalidation}, so loads that are in flight in
-     * <i>other</i> caches, or loads that have not yet been registered locally, may still
-     * publish stale results.
-     * <p>
-     * Callers that need cross-cache or globally-visible tag invalidation must wrap calls
-     * to {@code invalidateIds} in a {@link TagInvalidation#startInvalidation} /
-     * {@link TagInvalidation#endInvalidation} window using an epoch obtained from
-     * {@link InvalidationClock#claimInvalidationEpoch()}. The public
-     * {@code memento.core/memo-clear-tags!} entry point already does this; direct callers
-     * (e.g. cross-process invalidation listeners) must do the equivalent themselves.
-     *
-     * @param id
-     * @return
-     */
-    ICache invalidateIds(Iterable<Object> id);
-
-    /**
      * Add entries as for a function
      *
      * @param segment

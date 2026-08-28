@@ -101,7 +101,6 @@ From 11 stack frames to 4.
 - **`Segment`**: Function binding metadata
 - **`CacheKey`**: Composite key (id + args)
 - **`EntryMeta`**: Wrapper for cached values with metadata (tag IDs, no-cache flag)
-- **`TagInvalidation`**: Tracks active tag invalidations by epoch
 - **`Durations`**: Time unit conversions
 
 ### `memento.mount`
@@ -114,7 +113,7 @@ From 11 stack frames to 4.
 ### `memento.caffeine`
 
 - **`CaffeineCache_`**: Core Caffeine operations
-- **`SecondaryIndex`**: Maps tag+ID pairs to cache keys for bulk invalidation
+- **`SecondaryIndex`**: Maps tag+ID pairs to cache keys and coordinates Caffeine invalidation epochs
 - **`Expiry`**: Interface for variable per-entry expiry
 - **`SpecialPromise`**: Promise that tracks invalidation state during loads
 
@@ -149,52 +148,58 @@ Tag invalidation is more complex because:
 - Ongoing loads may produce stale data
 - We need atomicity across multiple operations
 
-#### TagInvalidation
-
-The `TagInvalidation` tracker coordinates bulk invalidations:
-
-```java
-public class TagInvalidation {
-    // Map of [tag, id] -> invalidation epoch
-    // When invalidation starts, entry is added
-    // Loads compare their start epoch with active tag invalidation epochs
-    // When invalidation completes, the entry is removed if the epoch still matches
-}
-```
-
 #### Invalidation Sequence
 
-1. Add tag+ID to active invalidation map with an epoch
-2. Find all cache keys with this tag+ID (via secondary index)
-3. Invalidate each key
-4. Remove matching epoch from active invalidation map
+1. Invoke every backend's lightweight `start-secondary-invalidation!` method.
+2. Invoke every backend's `invalidate-secondary!` method, passing start state.
+3. Invoke every backend's `end-secondary-invalidation!` method, passing the state
+   returned by invalidation (or start state when invalidation failed).
+
+Secondary-index invalidation is backend-owned and does not enumerate mount points. The
+Caffeine backend uses one JVM-wide index containing weak cache/key references and local
+epochs. Distributed backends can use native indexes and backend-specific epochs. Starting
+all backends before running any potentially slow invalidator gives their lockout windows the
+widest practical overlap; cross-backend atomicity is not implied.
 
 #### Load Sequence (with tag checking)
 
-1. On load start, capture the current `InvalidationClock` value as the load's epoch.
-2. Proceed with load.
-3. Before publishing the result, compute `latestInvalidation` as the max of
-   the segment's invalidation epoch, the cache's invalidation epoch, and
-   `TagInvalidation.lastInvalidatedEpoch` for the result's tag IDs.
-4. If the load's epoch is less than or equal to `latestInvalidation`, or any
-   of the result's tag IDs were marked invalid on the load's `SpecialPromise`
-   during the load, discard the result and retry.
-5. Otherwise CAS-publish the value onto the `SpecialPromise` via `deliver`.
+1. Publish a `SpecialPromise` for the key and capture the current `InvalidationClock`
+   value as the candidate load's epoch.
+2. If this thread published the promise, register the load with the secondary index and
+   invoke the cached function.
+3. Before publishing the result, compare the load's epoch with the segment and
+   cache invalidation epochs. If the load predates either, discard it and retry.
+4. Otherwise CAS-publish the value onto the `SpecialPromise` via `deliver`.
    Concurrent `invalidate()` calls also CAS the promise to `EntryMeta.absent`;
    whichever wins determines the outcome. If `deliver` lost the race, the loader
    removes the entry from the delegate map and retries.
-6. After `deliver` wins, build the canonical `CacheEntry`, `replace` the promise
-   with it in the delegate map, then call `p.reject()` on the promise. Rejection
-   forcibly clears the promise's published value so any joiners blocked in
-   `await()` wake up, observe `absent`, and re-loop through the delegate map.
-   This redirects joiners to the now-published `CacheEntry` (or its successor)
-   and is the mechanism that lets joiners revalidate against any invalidation
-   that arrived between `deliver` and `replace`.
+5. After `deliver` wins, `finishLoad` checks active tag invalidation epochs, tag IDs
+   recorded on the promise, and whether the promise was directly invalidated after
+   delivery. If valid, it publishes the canonical `CacheEntry`; otherwise the loader
+   rejects the delivered result and retries.
+6. Callers already waiting on a successfully published promise receive its result
+   directly; later callers read the `CacheEntry` from the map.
 
-Note: `invalidateIds` on `ICache` only updates its own cache's `loads` set and
-secondary index. Cross-cache visibility of an ongoing tag invalidation is
-provided by `TagInvalidation.startInvalidation` / `endInvalidation`, which
-`memento.core/memo-clear-tags!` wraps around the per-cache invalidation calls.
+Load registration intentionally happens after winning `putIfAbsent` and immediately before
+invoking the cached function. A tag invalidation can therefore complete between promise
+publication and registration without marking the promise. This is treated as the load
+starting after that invalidation because no user computation has begun yet. Registering
+before publication would close that internal handoff window, but would require an extra map
+lookup on misses and more complex ownership cleanup without protecting against the external
+gap between mutating the underlying data and calling invalidation. Once function invocation
+begins, the registration and epoch checks prevent an overlapping invalidation from allowing
+the load to publish stale data.
+
+There is a narrow publication-boundary gap: after the promise has been replaced by a
+`CacheEntry`, an invalidation can remove that entry while a caller already holding the
+detached, successfully delivered promise still returns its value. The loader can likewise
+return its computed value after concurrent removal. Memento detects invalidations during
+meaningful load execution through epochs and promise invalidation, but does not attempt to
+close this final handoff race. Closing it would require successful joiners to re-read the
+map while still not providing an absolute guarantee for the loader itself.
+
+`memento.core/memo-clear-tags!` orchestrates the three backend lifecycle phases. Core does
+not create or interpret invalidation epochs.
 
 #### Promise Result CAS
 
@@ -206,9 +211,9 @@ The transitions are:
 - `invalidate`: `getAndSet` to `EntryMeta.absent`. Always wins; only interrupts
   the loader thread if it observed a non-`absent` prior value (i.e. it actually
   clobbered something, ensuring the interrupt has a meaningful target).
-- `reject`: unconditional `set` to `EntryMeta.absent`. Used by the loader after
-  it has published the canonical `CacheEntry` to the delegate map, to push
-  joiners off the promise channel and back through the map.
+- `reject`: unconditional `set` to `EntryMeta.absent`. Used when validation or
+  publication fails after `deliver`, preventing joiners from observing a result
+  that the loader discarded.
 
 ### Thread Interruption
 
@@ -328,7 +333,6 @@ Implement `memento.base/ICache`:
   (invalidate [this segment] ...)
   (invalidate [this segment args] ...)
   (invalidateAll [this] ...)
-  (invalidateIds [this tag-ids] ...)
   (addEntries [this segment args-to-vals] ...)
   (asMap [this] ...)
   (asMap [this segment] ...))
@@ -340,6 +344,21 @@ Register with multimethod:
 (defmethod memento.base/new-cache :my-cache-type
   [conf]
   (->MyCache ...))
+
+(defmethod memento.base/start-secondary-invalidation! :my-cache-type
+  [_ tag-ids]
+  ;; Establish a lightweight lockout and return backend-specific state.
+  ...)
+
+(defmethod memento.base/invalidate-secondary! :my-cache-type
+  [_ tag-ids state]
+  ;; Invalidate active storage domains and return state for the end phase.
+  state)
+
+(defmethod memento.base/end-secondary-invalidation! :my-cache-type
+  [_ tag-ids state]
+  ;; Release the backend lockout.
+  nil)
 ```
 
 Use:

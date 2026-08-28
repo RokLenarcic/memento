@@ -33,7 +33,7 @@ Memento's `with-caches` makes this trivial. While request handling is the most c
 When a user updates their profile, you need to invalidate all cached data about that user - across multiple functions. Memento's tag-based invalidation lets you do this with a single call:
 
 ```clojure
-(m/memo-clear-tag! :user user-id)  ; Clears user 123's data from ALL tagged caches
+(m/memo-clear-tag! :user user-id)  ; Clears entries indexed by [:user user-id]
 ```
 
 ### N+1 Query Prevention
