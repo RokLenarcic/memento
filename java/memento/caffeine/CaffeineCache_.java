@@ -20,6 +20,7 @@ public class CaffeineCache_ {
     private final IFn retExFn;
 
     private final Cache<CacheKey, Object> delegate;
+    private final boolean secondaryIndex;
 
     private volatile long cacheEpoch = InvalidationClock.NO_INVALIDATION_EPOCH;
 
@@ -29,16 +30,22 @@ public class CaffeineCache_ {
 
     private boolean beingInvalidated(Segment segment, CacheEntry entry) {
         return entry.getWriteEpoch() <= lastInvalidation(segment)
-               || SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getSecIds());
+               || (secondaryIndex && SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getSecIds()));
     }
 
     public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn) {
+        this(builder, keyFn, retFn, retExFn, true);
+    }
+
+    public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn,
+                          boolean secondaryIndex) {
         this.keyFn = keyFn == null ?
                 (segment, args) -> new CacheKey(segment.getId(), segment.getKeyFn().invoke(args)) :
                 (segment, args) -> new CacheKey(segment.getId(), keyFn.invoke(segment.getKeyFn().invoke(args)));
         this.retFn = retFn;
         this.delegate = builder.build();
         this.retExFn = retExFn;
+        this.secondaryIndex = secondaryIndex;
     }
 
     public Object cached(Segment segment, ISeq args) throws Throwable {
@@ -48,7 +55,9 @@ public class CaffeineCache_ {
             Object cached = delegate.asMap().putIfAbsent(key, promise);
             if (cached == null) {
                 try {
-                    memento.base.InvalidationTimeline.Operation operation = SecondaryIndex.INSTANCE.startOperation();
+                    memento.base.InvalidationTimeline.Operation operation = secondaryIndex
+                            ? SecondaryIndex.INSTANCE.startOperation()
+                            : null;
                     promise.startLoad(operation);
                     // calculate value
                     Object result = AFn.applyToHelper(segment.getF(), args);
@@ -67,7 +76,7 @@ public class CaffeineCache_ {
                                 continue;
                             }
                         }
-                        if (ids.count() != 0) {
+                        if (secondaryIndex && ids.count() != 0) {
                             CacheEntry entry = CacheEntry.fromResult(result, InvalidationClock.claimWriteEpoch());
                             SecondaryIndex.INSTANCE.add(this, key, entry);
                             if (promise.deliver(result, lastInvalidation(segment))
@@ -225,7 +234,7 @@ public class CaffeineCache_ {
     }
 
     private void putEntry(CacheKey key, CacheEntry entry) {
-        if (entry.getSecIds().count() == 0) {
+        if (!secondaryIndex || entry.getSecIds().count() == 0) {
             delegate.put(key, entry);
         } else {
             memento.base.InvalidationTimeline.Operation operation = SecondaryIndex.INSTANCE.startOperation();

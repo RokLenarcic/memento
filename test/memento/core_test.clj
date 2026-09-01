@@ -287,6 +287,19 @@
       (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
       (is (= {[2] 2} (do (memo-clear-sec-id! [:entity 1]) (as-map f)))))))
 
+(deftest lite-cache-ignores-secondary-ids-test
+  (let [calls (atom 0)
+        f (memo (fn [x] (with-sec-id [x (swap! calls inc)] [:entity x]))
+                {mc/type mc/lite})]
+    (is (= [1 1] (f 1)))
+    (memo-clear-sec-id! [:entity 1])
+    (is (= [1 1] (f 1)))
+    (with-invalidation [[:entity 1]] nil)
+    (is (= [1 1] (f 1)))
+    (is (= 1 @calls))
+    (memo-clear! f 1)
+    (is (= [1 2] (f 1)))))
+
 (deftest stale-secondary-index-does-not-remove-replaced-entry
   (let [f (memo (fn [x] (with-sec-id x :old)) :tag inf)]
     (is (= 1 (f 1)))

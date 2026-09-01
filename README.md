@@ -296,7 +296,7 @@ Durations can be numbers (seconds) or `[amount :unit]` pairs:
 
 | Setting | Description | Example |
 |---------|-------------|---------|
-| `mc/type` | Cache implementation (**required**) | `mc/caffeine` |
+| `mc/type` | Cache implementation (`mc/caffeine`, `mc/lite`, or `mc/none`) | `mc/caffeine` |
 | `mc/size<` | Max entries (LRU eviction) | `1000` |
 | `mc/ttl` | Time-to-live | `[5 :m]` |
 | `mc/fade` | Expire after last access | `[10 :m]` |

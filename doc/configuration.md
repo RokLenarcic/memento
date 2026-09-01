@@ -86,7 +86,7 @@ These settings control the cache itself. Use vars from `memento.config` (aliased
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `mc/type` | Cache implementation: `mc/caffeine` or `mc/none` | `{mc/type mc/caffeine}` |
+| `mc/type` | Cache implementation: `mc/caffeine`, `mc/lite`, or `mc/none` | `{mc/type mc/caffeine}` |
 | `mc/size<` | Max entries (LRU eviction) | `{mc/size< 1000}` |
 | `mc/ttl` | Time-to-live since creation | `{mc/ttl [5 :m]}` |
 | `mc/fade` | Expiry since last access | `{mc/fade [10 :m]}` |
@@ -95,6 +95,8 @@ These settings control the cache itself. Use vars from `memento.config` (aliased
 **Time units:** `:ns`, `:us`, `:ms`, `:s`, `:m`, `:h`, `:d` — or just a number for seconds.
 
 **Note:** If you omit `mc/type`, the function uses a no-op cache (no caching). This is intentional for scoped caching patterns where caching only happens inside `with-caches`. See the [Scoped Caching Guide](scoped-caching.md).
+
+Use `mc/lite` for Caffeine caching without secondary-index support. It ignores secondary IDs added by `m/with-sec-id`, so `m/memo-clear-sec-id!`, `m/start-invalidation!`, and `m/with-invalidation` do not affect its entries.
 
 ## Mount Configuration Options
 

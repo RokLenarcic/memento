@@ -76,10 +76,8 @@ public class SpecialPromise {
     // predates the load and this call won the result CAS.
     boolean deliver(Object r, long latestInvalidation) {
         InvalidationTimeline.Operation start = timelineStart;
-        if (start == null) {
-            return false;
-        }
-        if (epoch <= latestInvalidation || (r instanceof EntryMeta && SecondaryIndex.INSTANCE.isInvalid(start, (EntryMeta)r))) {
+        if (epoch <= latestInvalidation
+                || (start != null && r instanceof EntryMeta && SecondaryIndex.INSTANCE.isInvalid(start, (EntryMeta) r))) {
             RESULT.compareAndSet(this, null, EntryMeta.absent);
             return false;
         }

@@ -32,8 +32,9 @@
   "Cache setting, type of cache or region that will be instantiated, a keyword.
 
    The library has two built-ins:
-  - memento.core/none
-  - memento.core/caffeine
+   - memento.core/none
+   - memento.core/caffeine
+   - memento.core/lite
 
   If not specified the caches created default to *default-type*."
   :memento.core/type)
@@ -91,6 +92,10 @@
 (def caffeine
   "Cache setting value, type name of Caffeine cache implementation"
   :memento.core/caffeine)
+
+(def lite
+  "Cache setting value, type name of the Caffeine implementation without secondary-index support."
+  :memento.core/lite)
 
 (def none
   "Cache setting value, type name of noop cache implementation"

@@ -108,6 +108,14 @@
                            (:memento.core/ret-fn conf)
                            (:memento.core/ret-ex-fn conf))))
 
+(defmethod b/new-cache :memento.core/lite [conf]
+  (->CaffeineCache conf (CaffeineCache_.
+                          (conf->builder conf)
+                          (:memento.core/key-fn conf)
+                          (:memento.core/ret-fn conf)
+                          (:memento.core/ret-ex-fn conf)
+                          false)))
+
 (defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ sec-ids]
   (.startInvalidation SecondaryIndex/INSTANCE sec-ids))
 
