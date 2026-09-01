@@ -2,13 +2,14 @@
 
 ## Unreleased
 
+## 3.0.0
+
 - Secondary-index invalidation is now implemented by cache backend methods via
   the `start-secondary-invalidation!`, `invalidate-secondary!`, and
   `end-secondary-invalidation!` lifecycle; mount tags are no longer required.
 - Added `memento.core/start-invalidation!` and `memento.core/with-invalidation` for keeping
   cache loads out of the interval around an underlying write.
-- Secondary-index IDs are now arbitrary values. Added `with-sec-id` and `memo-clear-sec-id!`;
-  the pair-oriented `with-tag-id`, `memo-clear-tag!`, and `memo-clear-tags!` are deprecated.
+- Secondary IDs are arbitrary values. Added `with-sec-id` and `memo-clear-sec-id!`.
 - Core no longer owns a universal invalidation epoch. Each cache backend owns its
   secondary-index storage domains and concurrency model.
 - **Breaking change for cache implementors:** removed `invalidateIds` from
@@ -74,7 +75,7 @@
 - important fix for secondary indexes clearing
 - reduced memory use
 - improving performance on evictions when an eviction listener isn't used
-- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of tag ids; implementations are expected to coordinate in-flight loads with tag invalidations.
+- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of secondary IDs; implementations are expected to coordinate in-flight loads with secondary-ID invalidations.
 
 ## 1.1.54
 

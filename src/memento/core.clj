@@ -27,11 +27,6 @@
     (do (.setSecIds ^EntryMeta v (conj (.getSecIds ^EntryMeta v) sec-id)) v)
     (EntryMeta. v false #{sec-id})))
 
-(defn ^:deprecated with-tag-id
-  "DEPRECATED: use with-sec-id with a composite ID such as [tag id]."
-  [v tag id]
-  (with-sec-id v [tag id]))
-
 (defn create
   "Create a cache.
 
@@ -182,11 +177,6 @@
   [sec-id]
   ((start-invalidation! sec-id) true))
 
-(defn ^:deprecated memo-clear-tags!
-  "DEPRECATED: use start-invalidation! with one or more secondary IDs."
-  [& sec-ids]
-  ((apply start-invalidation! sec-ids) true))
-
 (defn start-invalidation!
   "Start a secondary-index invalidation for secondary IDs.
 
@@ -213,11 +203,6 @@
                        (throw t#)))]
        (finish# true)
        result#)))
-
-(defn ^:deprecated memo-clear-tag!
-  "DEPRECATED: use memo-clear-sec-id! with a composite ID such as [tag id]."
-  [tag id]
-  (memo-clear-sec-id! [tag id]))
 
 (defn update-tag-caches!
   "For each memoized function with the specified tag, set the Cache used by the fn to (cache-fn current-cache).

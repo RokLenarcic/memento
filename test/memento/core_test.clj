@@ -280,13 +280,6 @@
            (with-sec-id 1 [:person 55])))
     (is (= (EntryMeta. 1 true #{[:person 55] [:account 6]})
            (-> 1 (with-sec-id [:person 55]) (with-sec-id [:account 6]) do-not-cache))))
-  (testing "deprecated tag-pair wrapper"
-    (is (= (with-sec-id 1 [:person 55])
-           (with-tag-id 1 :person 55)))
-    (let [f (memo (fn [x] (with-tag-id x :person x)) inf)]
-      (f 55)
-      (memo-clear-tag! :person 55)
-      (is (empty? (as-map f)))))
   (testing "secondary-ID eviction"
     (let [f (memo (fn [x] (with-sec-id x [:entity x])) :tag inf)]
       (is (= {} (as-map f)))

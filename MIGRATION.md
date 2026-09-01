@@ -1,5 +1,31 @@
 # Migration Guide
 
+## Migrating to Version 3.0
+
+Version 3.0 removes the deprecated tag-pair invalidation API. Use secondary IDs directly; a composite value such as `[tag id]` preserves the former pairing convention.
+
+### Breaking Changes
+
+1. **Tag-pair APIs removed**:
+   ```clojure
+   ;; Old
+   (m/with-tag-id value :user user-id)
+   (m/memo-clear-tag! :user user-id)
+   (m/memo-clear-tags! [:user user-id] [:order order-id])
+
+   ;; New
+   (m/with-sec-id value [:user user-id])
+   (m/memo-clear-sec-id! [:user user-id])
+   (m/start-invalidation! [:user user-id] [:order order-id])
+   ```
+
+Prefer `with-invalidation` when the invalidation surrounds a write:
+
+```clojure
+(m/with-invalidation [[:user user-id]]
+  (db/update-user! user-id changes))
+```
+
 ## Migrating to Version 2.0
 
 Version 2.0 upgrades from Caffeine 2 to Caffeine 3.

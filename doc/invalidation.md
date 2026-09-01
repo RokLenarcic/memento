@@ -136,8 +136,6 @@ Use `m/with-sec-id` to associate cached values with entity IDs:
 
 For writes, prefer `with-invalidation`: it starts the invalidation before the write so loads that overlap the write cannot publish stale results.
 
-`with-tag-id`, `memo-clear-tag!`, and `memo-clear-tags!` are deprecated compatibility helpers for the former `[tag id]` convention. Use `with-sec-id`, `memo-clear-sec-id!`, and `start-invalidation!` instead.
-
 ### Multiple Secondary IDs per Entry
 
 A cached value can have multiple secondary IDs. This is essential for aggregated data like dashboards.
