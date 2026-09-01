@@ -17,15 +17,20 @@
     (do (.setNoCache ^EntryMeta v true) v)
     (EntryMeta. v true #{})))
 
-(defn with-tag-id
-  "Wrap a function result value in a wrapper that has the given additional
-  tag + ID information. You can add multiple IDs for same tag.
+(defn with-sec-id
+  "Wrap a function result value with an additional secondary ID.
 
-  This information is later used by memo-clear-tag!."
-  [v tag id]
+   A value may have multiple secondary IDs. This information is later used by
+   memo-clear-sec-id! and start-invalidation!."
+  [v sec-id]
   (if (instance? EntryMeta v)
-    (do (.setTagIdents ^EntryMeta v (conj (.getTagIdents ^EntryMeta v) [tag id])) v)
-    (EntryMeta. v false #{[tag id]})))
+    (do (.setSecIds ^EntryMeta v (conj (.getSecIds ^EntryMeta v) sec-id)) v)
+    (EntryMeta. v false #{sec-id})))
+
+(defn ^:deprecated with-tag-id
+  "DEPRECATED: use with-sec-id with a composite ID such as [tag id]."
+  [v tag id]
+  (with-sec-id v [tag id]))
 
 (defn create
   "Create a cache.
@@ -172,29 +177,32 @@
 
 (declare start-invalidation!)
 
-(defn memo-clear-tags!
-  "Invalidate all entries that have the specified tag + id metadata. ID can be anything.
+(defn memo-clear-sec-id!
+  "Invalidate all entries indexed by sec-id. Returns nil."
+  [sec-id]
+  ((start-invalidation! sec-id) true))
 
-   Expects a collection of [tag id] pairs."
-  [& tag+ids]
-  ((start-invalidation! tag+ids) true))
+(defn ^:deprecated memo-clear-tags!
+  "DEPRECATED: use start-invalidation! with one or more secondary IDs."
+  [& sec-ids]
+  ((apply start-invalidation! sec-ids) true))
 
 (defn start-invalidation!
-  "Start a secondary-index invalidation for tag + ID pairs.
+  "Start a secondary-index invalidation for secondary IDs.
 
    Returns a single-use function accepting a boolean. Call it with true after the
    underlying change succeeds to invalidate matching entries and end the lockout;
    call it with false to end the lockout without invalidating."
-  [tag-ids]
-  (base/start-secondary-invalidation-all! tag-ids))
+  [& sec-ids]
+  (base/start-secondary-invalidation-all! sec-ids))
 
 (defmacro with-invalidation
-  "Run body while matching secondary-index invalidations are locked out.
+  "Run body while matching secondary IDs are locked out.
 
    Invalidates matching entries after body returns normally. If body throws, ends
    the lockout without invalidating and rethrows the original exception."
-  [tag-ids & body]
-  `(let [finish# (start-invalidation! ~tag-ids)]
+  [sec-ids & body]
+  `(let [finish# (apply start-invalidation! ~sec-ids)]
      (let [result# (try
                      (do ~@body)
                      (catch Throwable t#
@@ -206,10 +214,10 @@
        (finish# true)
        result#)))
 
-(defn memo-clear-tag!
-  "Invalidate all entries that have the specified tag + id metadata. ID can be anything."
+(defn ^:deprecated memo-clear-tag!
+  "DEPRECATED: use memo-clear-sec-id! with a composite ID such as [tag id]."
   [tag id]
-  (memo-clear-tags! [tag id]))
+  (memo-clear-sec-id! [tag id]))
 
 (defn update-tag-caches!
   "For each memoized function with the specified tag, set the Cache used by the fn to (cache-fn current-cache).

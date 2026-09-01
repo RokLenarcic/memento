@@ -67,7 +67,7 @@
    (fn [fn-args ret-value] transformed-value).
 
   It can provide some generic transformation facility, but more importantly, it can wrap specific return
-  values in 'do-not-cache' object, that prevents caching or wrap with tagged IDs."
+   values in a 'do-not-cache' object, that prevents caching or wrap with secondary IDs."
   :memento.core/ret-fn)
 
 (def evt-fn

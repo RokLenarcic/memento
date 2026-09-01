@@ -221,14 +221,13 @@ For complex scenarios (invalidation, logging, conditional caching), write your o
   (db/fetch-user-email user-id))
 ```
 
-### Events + Tags: The Complete Pattern
+### Events + Mount Tags: The Complete Pattern
 
-Tags serve three purposes in Memento:
+Mount tags serve two purposes in Memento:
 1. **Scoped caching** - `with-caches` enables caching for tagged functions
-2. **Bulk invalidation** - `memo-clear-tag!` clears entries by tag + ID
-3. **Cache warming** - `fire-event!` broadcasts data to tagged functions
+2. **Cache warming** - `fire-event!` broadcasts data to tagged functions
 
-Together they let you build efficient caching without tight coupling between functions.
+Secondary IDs are separate from mount tags and support invalidating related cache entries. See the [Invalidation Guide](invalidation.md).
 
 ## Variable Expiry
 

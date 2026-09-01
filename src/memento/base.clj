@@ -63,50 +63,50 @@
 (defn- record-failure! [^ArrayList failures ^Throwable failure]
   (.add failures failure))
 
-(defn- start-invalidator [^ArrayList failures ids cache-type]
+(defn- start-invalidator [^ArrayList failures sec-ids cache-type]
   (try
     {:cache-type cache-type
-     :state (volatile! (start-secondary-invalidation! cache-type ids))}
+     :state (volatile! (start-secondary-invalidation! cache-type sec-ids))}
     (catch Throwable t
       (record-failure! failures t)
       nil)))
 
-(defn- run-invalidator! [^ArrayList failures ids {:keys [cache-type state]}]
+(defn- run-invalidator! [^ArrayList failures sec-ids {:keys [cache-type state]}]
   (try
-    (vreset! state (invalidate-secondary! cache-type ids @state))
+    (vreset! state (invalidate-secondary! cache-type sec-ids @state))
     (catch Throwable t
       (record-failure! failures t))))
 
-(defn- end-invalidator! [^ArrayList failures ids {:keys [cache-type state]}]
+(defn- end-invalidator! [^ArrayList failures sec-ids {:keys [cache-type state]}]
   (try
-    (end-secondary-invalidation! cache-type ids @state)
+    (end-secondary-invalidation! cache-type sec-ids @state)
     (catch Throwable t
       (record-failure! failures t))))
 
-(defn start-secondary-invalidation-all! [ids]
+(defn start-secondary-invalidation-all! [sec-ids]
   (let [failures (ArrayList.)
         cache-types (disj (into (set (keys (methods start-secondary-invalidation!)))
                                  (concat (keys (methods invalidate-secondary!))
                                         (keys (methods end-secondary-invalidation!))))
                           :default)
-        started (into [] (keep #(start-invalidator failures ids %)) cache-types)
+         started (into [] (keep #(start-invalidator failures sec-ids %)) cache-types)
         completed (AtomicBoolean.)]
     (when-let [^Throwable failure (first failures)]
-      (run! #(end-invalidator! failures ids %) started)
+       (run! #(end-invalidator! failures sec-ids %) started)
       (run! #(.addSuppressed failure %) (next failures))
       (throw failure))
     (fn [invalidate?]
       (when-not (.compareAndSet completed false true)
         (throw (IllegalStateException. "Invalidation has already completed")))
       (when invalidate?
-        (run! #(run-invalidator! failures ids %) started))
-      (run! #(end-invalidator! failures ids %) started)
+         (run! #(run-invalidator! failures sec-ids %) started))
+       (run! #(end-invalidator! failures sec-ids %) started)
       (when-let [^Throwable failure (first failures)]
         (run! #(.addSuppressed failure %) (next failures))
         (throw failure)))))
 
-(defn invalidate-secondary-all! [ids]
-  ((start-secondary-invalidation-all! ids) true))
+(defn invalidate-secondary-all! [sec-ids]
+  ((start-secondary-invalidation-all! sec-ids) true))
 
 (defmethod new-cache :memento.core/none [_] no-cache)
 

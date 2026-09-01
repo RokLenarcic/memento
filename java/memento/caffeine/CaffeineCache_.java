@@ -29,7 +29,7 @@ public class CaffeineCache_ {
 
     private boolean beingInvalidated(Segment segment, CacheEntry entry) {
         return entry.getWriteEpoch() <= lastInvalidation(segment)
-               || SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getTagIdents());
+               || SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getSecIds());
     }
 
     public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn) {
@@ -57,7 +57,7 @@ public class CaffeineCache_ {
                     }
                     if (result instanceof EntryMeta) {
                         EntryMeta metadata = (EntryMeta) result;
-                        IPersistentSet ids = metadata.getTagIdents();
+                        IPersistentSet ids = metadata.getSecIds();
                         if (metadata.isNoCache()) {
                             if (delegate.asMap().remove(key, promise)
                                     && promise.deliver(result, lastInvalidation(segment))) {
@@ -225,7 +225,7 @@ public class CaffeineCache_ {
     }
 
     private void putEntry(CacheKey key, CacheEntry entry) {
-        if (entry.getTagIdents().count() == 0) {
+        if (entry.getSecIds().count() == 0) {
             delegate.put(key, entry);
         } else {
             memento.base.InvalidationTimeline.Operation operation = SecondaryIndex.INSTANCE.startOperation();

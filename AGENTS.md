@@ -39,7 +39,7 @@ memento/
 │   │   ├── Segment.java   # Function binding info
 │   │   ├── CacheKey.java  # Composite key (id + args)
 │   │   ├── EntryMeta.java # Cached value wrapper with metadata
-│   │   ├── TagInvalidation.java # Active tag invalidation tracking across caches
+│   │   ├── InvalidationTimeline.java # Active secondary-ID invalidation tracking
 │   │   ├── InvalidationClock.java # Global monotonic epoch source
 │   │   └── Durations.java
 │   ├── mount/             # Mount point implementations
@@ -90,10 +90,14 @@ memento/
    - `id` - Segment identifier
    - `args` - Transformed function arguments
 
-5. **Tags**: Enable scoped caching and bulk operations:
-   - Functions can have multiple tags
-   - `with-caches` temporarily replaces cache for a tag
-   - `memo-clear-tag!` invalidates by tag + ID
+5. **Mount tags**: Enable scoped caching and event broadcast:
+    - Functions can have multiple tags
+    - `with-caches` temporarily replaces cache for a tag
+
+6. **Secondary IDs**: Identify returned cache entries for cross-function invalidation:
+    - Any hashable value can be a secondary ID
+    - `with-sec-id` adds an ID to a result
+    - `start-invalidation!` and `with-invalidation` invalidate IDs around writes
 
 ### Namespace Responsibilities
 
@@ -112,8 +116,8 @@ memento/
 Java is used for performance-critical paths:
 - Reduces stack depth for cached calls
 - Implements `ICache` and `IMountPoint` interfaces
-- Handles concurrent load coordination (`SpecialPromise` and tag invalidation tracking)
-- Secondary index for tag-based eviction
+- Handles concurrent load coordination (`SpecialPromise` and secondary-ID invalidation tracking)
+- Secondary index for targeted eviction
 
 Clojure is used for:
 - Public API (`memento.core`)
@@ -187,14 +191,15 @@ Clojure is used for:
 (m/memo-clear! cached-fn)             ; Clear all entries
 (m/memo-clear! cached-fn & args)      ; Clear specific entry
 (m/memo-clear-cache! cache)           ; Clear entire cache
-(m/memo-clear-tag! tag id)            ; Clear by secondary index
-(m/memo-clear-tags! & [tag id] pairs) ; Bulk clear
+(m/memo-clear-sec-id! sec-id)         ; Clear by secondary ID
+(m/start-invalidation! sec-id ...)    ; Start invalidation around a write
+(m/with-invalidation [sec-id ...] body) ; Run a write within an invalidation
 ```
 
 ### Return Value Control
 ```clojure
 (m/do-not-cache value)                ; Prevent caching this value
-(m/with-tag-id value tag id)          ; Tag value for secondary index
+(m/with-sec-id value sec-id)          ; Index value by secondary ID
 ```
 
 ### Scoped Caching
@@ -221,13 +226,13 @@ Clojure is used for:
 ### Concurrency
 - Single ongoing load per key (Caffeine handles this)
 - If key invalidated during load, load is repeated
-- `TagInvalidation` coordinates active tag invalidations
-- Loading thread is interrupted on tag invalidation
+- `InvalidationTimeline` coordinates active secondary-ID invalidations
+- Loading thread is interrupted on secondary-ID invalidation
 
 ### Secondary Index
-- Entries can be tagged with `[tag id]` pairs via `with-tag-id`
-- `SecondaryIndex` (Java) maintains tag-to-keys mappings
-- Enables efficient invalidation by tag + ID
+- Entries can carry arbitrary secondary IDs via `with-sec-id`
+- `SecondaryIndex` (Java) maintains secondary-ID-to-key mappings
+- Enables efficient targeted invalidation
 
 ### Reload Guards
 - Special objects clean up tag mappings when memoized functions are GCed

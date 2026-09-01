@@ -7,7 +7,7 @@ This guide covers all the ways to clear and invalidate cache entries in Memento.
 Cached data becomes stale when the underlying data changes. Good invalidation ensures users see fresh data while still benefiting from caching. Memento provides several invalidation strategies:
 
 1. **Manual clearing** - Clear specific entries or entire caches
-2. **Tag-based invalidation** - Clear related entries across multiple functions with one call
+2. **Secondary-index invalidation** - Clear related entries across multiple functions with one call
 3. **Automatic expiration** - TTL and fade (covered in [Configuration](configuration.md))
 
 ## Manual Cache Clearing
@@ -45,9 +45,9 @@ If multiple functions share a cache, clear all entries at once:
 (m/memo-clear-cache! shared-cache)
 ```
 
-## Tag-Based Invalidation
+## Secondary-Index Invalidation
 
-The real power of Memento is invalidating related data across multiple functions with a single call. This uses a **secondary index** that maps entity IDs to cache entries.
+The real power of Memento is invalidating related data across multiple functions with a single call. A secondary index maps arbitrary secondary IDs to cache entries. Secondary IDs are independent of mount tags: mount tags only select functions for scoped caching and event broadcast.
 
 ### The N×M Problem
 
@@ -55,7 +55,7 @@ In a typical application you have:
 - **N cached functions** that read entity data (e.g., `get-user`, `get-user-orders`, `get-user-preferences`)
 - **M functions** that modify entity data (e.g., `update-user!`, `delete-user!`, `merge-users!`)
 
-Without tag-based invalidation, every modifying function must know about every cached function:
+Without secondary-index invalidation, every modifying function must know about every cached function:
 
 ```clojure
 ;; Every modifier must list ALL cached functions - maintenance nightmare!
@@ -73,9 +73,9 @@ This creates an N×M maintenance burden:
 - Adding a new modifier means knowing all N cached functions
 - It's easy to forget one and have stale data bugs
 
-### The Solution: Tag IDs
+### The Solution: Secondary IDs
 
-Tag-based invalidation decouples producers from consumers. They only need to agree on a tag name:
+Secondary-index invalidation decouples producers from consumers. They only need to agree on a secondary-ID scheme. A vector such as `[:user user-id]` is a useful composite secondary ID, but any hashable value works:
 
 ```clojure
 ;; CACHED FUNCTIONS: index returned entries, don't care who invalidates
@@ -83,12 +83,12 @@ Tag-based invalidation decouples producers from consumers. They only need to agr
   {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-user user-id)
-      (m/with-tag-id :user user-id)))
+      (m/with-sec-id [:user user-id])))
 
-;; MODIFYING FUNCTIONS: invalidate :user tag, don't care who's cached  
+;; MODIFYING FUNCTIONS: invalidate the matching secondary ID.
 (defn update-user! [user-id data]
-  (db/update-user! user-id data)
-  (m/memo-clear-tag! :user user-id))  ; Clears all entries indexed by this pair
+  (m/with-invalidation [[:user user-id]]
+    (db/update-user! user-id data)))
 ```
 
 Now you can add cached functions or modifiers independently.
@@ -109,34 +109,38 @@ Now you can add cached functions or modifiers independently.
   (db/fetch-orders user-id))
 ```
 
-#### Step 2: Tag Return Values with Entity IDs
+#### Step 2: Add Secondary IDs to Return Values
 
-Use `m/with-tag-id` to associate cached values with entity IDs:
+Use `m/with-sec-id` to associate cached values with entity IDs:
 
 ```clojure
 (m/defmemo get-user
   {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-user user-id)
-      (m/with-tag-id :user user-id)))  ; "This result is about user `user-id`"
+      (m/with-sec-id [:user user-id])))
 
 (m/defmemo get-user-orders
   {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-orders user-id)
-      (m/with-tag-id :user user-id)))
+      (m/with-sec-id [:user user-id])))
 ```
 
-#### Step 3: Invalidate by Tag + ID
+#### Step 3: Invalidate by Secondary ID
 
 ```clojure
-;; Clears every entry indexed by [:user 123]
-(m/memo-clear-tag! :user 123)
+;; Clears every entry indexed by [:user 123].
+(m/memo-clear-sec-id! [:user 123])
 ```
 
-### Multiple Tags per Entry
+For writes, prefer `with-invalidation`: it starts the invalidation before the write so loads that overlap the write cannot publish stale results.
 
-A cached value can be tagged with multiple entity IDs. This is essential for aggregated data like dashboards.
+`with-tag-id`, `memo-clear-tag!`, and `memo-clear-tags!` are deprecated compatibility helpers for the former `[tag id]` convention. Use `with-sec-id`, `memo-clear-sec-id!`, and `start-invalidation!` instead.
+
+### Multiple Secondary IDs per Entry
+
+A cached value can have multiple secondary IDs. This is essential for aggregated data like dashboards.
 
 #### Simple case: Two related entities
 
@@ -146,12 +150,12 @@ A cached value can be tagged with multiple entity IDs. This is essential for agg
   [order-id]
   (let [order (db/fetch-order order-id)]
     (-> order
-        (m/with-tag-id :order order-id)
-        (m/with-tag-id :user (:user-id order)))))
+        (m/with-sec-id [:order order-id])
+        (m/with-sec-id [:user (:user-id order)]))))
 
 ;; Now you can invalidate by either:
-(m/memo-clear-tag! :order 456)  ; Clear this specific order
-(m/memo-clear-tag! :user 123)   ; Clear all orders for user 123
+(m/memo-clear-sec-id! [:order 456])  ; Clear this specific order
+(m/memo-clear-sec-id! [:user 123])   ; Clear all orders for user 123
 ```
 
 #### Complex case: Aggregated data
@@ -163,45 +167,34 @@ Consider a dashboard showing the last 10 users who logged in. If any of those us
   {mc/type mc/caffeine}
   []
   (let [users (db/fetch-recent-users 10)]
-    ;; Tag with ALL user IDs that appear in this cached result
+    ;; Add an ID for every user that appears in this cached result.
     (reduce (fn [result user]
-              (m/with-tag-id result :user (:id user)))
+              (m/with-sec-id result [:user (:id user)]))
             {:users users :generated-at (java.time.Instant/now)}
             users)))
 
 ;; Now if ANY of those 10 users is modified:
 (defn update-user! [user-id data]
-  (db/update-user! user-id data)
-  (m/memo-clear-tag! :user user-id))  ; Clears dashboard if this user was in it
+  (m/with-invalidation [[:user user-id]]
+    (db/update-user! user-id data)))
 ```
 
 The dashboard is automatically invalidated when any user it displays is modified, but NOT when unrelated users are modified.
 
 ### Using `ret-fn` for Cleaner Code
 
-Instead of adding `with-tag-id` inside your function, use `ret-fn` to separate caching concerns:
+Instead of adding `with-sec-id` inside your function, use `ret-fn` to separate caching concerns:
 
 ```clojure
-(defn tag-user-data [[user-id] result]
-  (m/with-tag-id result :user user-id))
+(defn index-user-data [[user-id] result]
+  (m/with-sec-id result [:user user-id]))
 
 (m/defmemo get-user
   {mc/type mc/caffeine
-   mc/ret-fn tag-user-data}
+   mc/ret-fn index-user-data}
   [user-id]
   (db/fetch-user user-id))  ; Clean function, no caching logic
 ```
-
-### Bulk Invalidation
-
-For better atomicity when invalidating multiple entities:
-
-```clojure
-;; Invalidate multiple tag+id pairs atomically
-(m/memo-clear-tags! [:user 123] [:user 456] [:order 789])
-```
-
-This ensures all invalidations happen together, preventing race conditions where some data is cleared but related data isn't.
 
 ### Invalidation Around a Write
 
@@ -210,7 +203,7 @@ read stale data during the write. The returned function is single-use: call it w
 successful write to clear matching entries, or `false` after a failed write to only end the lockout.
 
 ```clojure
-(let [finish! (m/start-invalidation! [[:user user-id]])]
+(let [finish! (m/start-invalidation! [:user user-id])]
   (try
     (db/update-user! user-id data)
     (finish! true)
@@ -293,7 +286,7 @@ Update cache after successful writes:
 (defn update-user! [user-id data]
   (let [updated-user (db/update-user! user-id data)]
     ;; Option 1: Invalidate and let next read refresh
-    (m/memo-clear-tag! :user user-id)
+    (m/memo-clear-sec-id! [:user user-id])
     
     ;; Option 2: Update cache directly (write-through)
     (m/memo-add! get-user {[user-id] updated-user})
@@ -308,10 +301,9 @@ Invalidate based on events from a message queue:
 ```clojure
 (defn handle-event [event]
   (case (:type event)
-    :user-updated (m/memo-clear-tag! :user (:user-id event))
-    :order-completed (m/memo-clear-tags! 
-                       [:order (:order-id event)]
-                       [:user (:user-id event)])
+    :user-updated (m/memo-clear-sec-id! [:user (:user-id event)])
+    :order-completed ((m/start-invalidation! [:order (:order-id event)]
+                                              [:user (:user-id event)]) true)
     nil))
 ```
 
@@ -334,7 +326,7 @@ If multiple threads request the same uncached key simultaneously, only one actua
 
 ### Invalidation During Load
 
-If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when an invalidation finds its `SpecialPromise` through an existing index entry; first loads with result-derived tag IDs are instead detected by timeline validation when they complete. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
+If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when an invalidation finds its `SpecialPromise` through an existing index entry; first loads with result-derived secondary IDs are instead detected by timeline validation when they complete. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
 
 ### The Call Tree Problem
 
@@ -361,16 +353,16 @@ When you invalidate both caches, there's a race condition:
 
 ### Solutions
 
-#### Tag-Based Invalidation with Lockout
+#### Secondary-Index Invalidation with Lockout
 
-When using secondary-index invalidation (`memo-clear-tag!`, `start-invalidation!`, or
+When using secondary-index invalidation (`memo-clear-sec-id!`, `start-invalidation!`, or
 `with-invalidation`), Memento records serialized start and end transitions on a timeline while each
 loaded cache backend clears its own indexes. Timeline reads remain lock-free, and loads validate the
 timeline before publication to coordinate concurrent loads without relying on mount tags.
 
 ```clojure
-;; Tag-based invalidation coordinates across functions
-(m/memo-clear-tag! :user user-id)
+;; Secondary-ID invalidation coordinates across functions.
+(m/memo-clear-sec-id! [:user user-id])
 ```
 
 #### Request-Scoped Caching with Liberal Clearing
@@ -412,6 +404,6 @@ For long-lived caches, if you can afford to clear *all* cached data (not just on
 
 This is a sledgehammer approach - it clears everything, not just user 123's data. Only practical when you genuinely need to invalidate all cached data.
 
-Most caching libraries don't address the call tree problem at all. Memento's tag-based invalidation with lockout coordination handles the common cases correctly.
+Most caching libraries don't address the call tree problem at all. Memento's secondary-index invalidation with lockout coordination handles the common cases correctly.
 
 See [Internals](internals.md) for details on the lockout mechanism.

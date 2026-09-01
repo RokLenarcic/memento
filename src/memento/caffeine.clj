@@ -108,14 +108,14 @@
                            (:memento.core/ret-fn conf)
                            (:memento.core/ret-ex-fn conf))))
 
-(defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ ids]
-  (.startInvalidation SecondaryIndex/INSTANCE ids))
+(defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ sec-ids]
+  (.startInvalidation SecondaryIndex/INSTANCE sec-ids))
 
-(defmethod b/invalidate-secondary! :memento.core/caffeine [_ _ids ^InvalidationTimeline$Invalidation state]
+(defmethod b/invalidate-secondary! :memento.core/caffeine [_ _sec-ids ^InvalidationTimeline$Invalidation state]
   (.invalidate SecondaryIndex/INSTANCE state)
   state)
 
-(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ _ids ^InvalidationTimeline$Invalidation state]
+(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ _sec-ids ^InvalidationTimeline$Invalidation state]
   (.endInvalidation SecondaryIndex/INSTANCE state))
 
 (defn stats

@@ -183,7 +183,7 @@ Transform the return value before caching. Receives `[args value]`.
 
 Common uses:
 - Prevent caching certain values with `m/do-not-cache`
-- Add tag IDs for invalidation with `m/with-tag-id`
+- Add secondary IDs for invalidation with `m/with-sec-id`
 
 ```clojure
 ;; Don't cache error responses

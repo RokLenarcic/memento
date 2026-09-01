@@ -274,60 +274,67 @@
       (is (= 50 (f 10)))
       (is (= 50 @access-nums)))))
 
-(deftest tagged-eviction-test
-  (testing "adding tag ID info"
+(deftest secondary-index-eviction-test
+  (testing "adding secondary IDs"
     (is (= (EntryMeta. 1 false #{[:person 55]})
-           (-> 1 (with-tag-id :person 55))))
+           (with-sec-id 1 [:person 55])))
     (is (= (EntryMeta. 1 true #{[:person 55] [:account 6]})
-           (-> 1 (with-tag-id :person 55) (with-tag-id :account 6) do-not-cache))))
-  (testing "tagged eviction"
-    (let [f (memo (fn [x] (with-tag-id x :tag x)) :tag inf)]
+           (-> 1 (with-sec-id [:person 55]) (with-sec-id [:account 6]) do-not-cache))))
+  (testing "deprecated tag-pair wrapper"
+    (is (= (with-sec-id 1 [:person 55])
+           (with-tag-id 1 :person 55)))
+    (let [f (memo (fn [x] (with-tag-id x :person x)) inf)]
+      (f 55)
+      (memo-clear-tag! :person 55)
+      (is (empty? (as-map f)))))
+  (testing "secondary-ID eviction"
+    (let [f (memo (fn [x] (with-sec-id x [:entity x])) :tag inf)]
       (is (= {} (as-map f)))
       (is (= {[1] 1} (do (f 1) (as-map f))))
       (is (= {[1] 1 [2] 2} (do (f 2) (as-map f))))
-      (is (= {[2] 2} (do (memo-clear-tag! :tag 1) (as-map f)))))))
+      (is (= {[2] 2} (do (memo-clear-sec-id! [:entity 1]) (as-map f)))))))
 
 (deftest stale-secondary-index-does-not-remove-replaced-entry
-  (let [f (memo (fn [x] (with-tag-id x :tag :old)) :tag inf)]
+  (let [f (memo (fn [x] (with-sec-id x :old)) :tag inf)]
     (is (= 1 (f 1)))
-    (is (= f (memo-add! f {[1] (with-tag-id 10 :tag :new)})))
+    (is (= f (memo-add! f {[1] (with-sec-id 10 :new)})))
     (is (= 10 (f 1)))
-    (is (= {[1] 10} (do (memo-clear-tag! :tag :old) (as-map f))))
-    (is (= {} (do (memo-clear-tag! :tag :new) (as-map f))))))
+    (is (= {[1] 10} (do (memo-clear-sec-id! :old) (as-map f))))
+    (is (= {} (do (memo-clear-sec-id! :new) (as-map f))))))
 
 (deftest batch-write-epochs-distinguish-collapsed-keys
   (let [f (memo identity (assoc inf mc/key-fn (constantly [])))]
-    (memo-add! f (array-map [1] (with-tag-id :old :batch :old)
-                              [2] (with-tag-id :new :batch :new)))
+    (memo-add! f (array-map [1] (with-sec-id :old :old)
+                              [2] (with-sec-id :new :new)))
     (is (= :new (f 1)))
-    (memo-clear-tag! :batch :old)
+    (memo-clear-sec-id! :old)
     (is (= :new (f 1)))
-    (memo-clear-tag! :batch :new)
+    (memo-clear-sec-id! :new)
     (is (empty? (as-map f)))))
 
-(deftest overlapping-tag-invalidations-test
-  (let [tag-invalidation SecondaryIndex/INSTANCE
-        tag-idents #{[:tag 1]}
-        older (.startInvalidation tag-invalidation tag-idents)
-        newer (.startInvalidation tag-invalidation tag-idents)]
-    (is (.hasActiveInvalidation tag-invalidation tag-idents))
-    (.endInvalidation tag-invalidation older)
-    (is (.hasActiveInvalidation tag-invalidation tag-idents))
-    (.endInvalidation tag-invalidation newer)
-    (is (not (.hasActiveInvalidation tag-invalidation tag-idents)))
-    (is (not (.hasActiveInvalidation tag-invalidation nil)))
-    (is (not (.hasActiveInvalidation tag-invalidation #{}))))
+(deftest overlapping-secondary-invalidations-test
+  (let [secondary-index SecondaryIndex/INSTANCE
+        sec-ids #{[:entity 1]}
+        older (.startInvalidation secondary-index sec-ids)
+        newer (.startInvalidation secondary-index sec-ids)]
+    (is (.hasActiveInvalidation secondary-index sec-ids))
+    (.endInvalidation secondary-index older)
+    (is (.hasActiveInvalidation secondary-index sec-ids))
+    (.endInvalidation secondary-index newer)
+    (is (not (.hasActiveInvalidation secondary-index sec-ids)))
+    (is (not (.hasActiveInvalidation secondary-index nil)))
+    (is (not (.hasActiveInvalidation secondary-index #{}))))
   (testing "older invalidation remains visible when a newer one finishes first"
-    (let [tag-invalidation SecondaryIndex/INSTANCE
-          tag-idents #{[:tag 1]}
-          older (.startInvalidation tag-invalidation tag-idents)
-          newer (.startInvalidation tag-invalidation tag-idents)]
-      (.endInvalidation tag-invalidation newer)
-      (is (.hasActiveInvalidation tag-invalidation tag-idents))
-      (.endInvalidation tag-invalidation older)
-      (is (not (.hasActiveInvalidation tag-invalidation tag-idents))))))
+    (let [secondary-index SecondaryIndex/INSTANCE
+          sec-ids #{[:entity 1]}
+          older (.startInvalidation secondary-index sec-ids)
+          newer (.startInvalidation secondary-index sec-ids)]
+      (.endInvalidation secondary-index newer)
+      (is (.hasActiveInvalidation secondary-index sec-ids))
+      (.endInvalidation secondary-index older)
+      (is (not (.hasActiveInvalidation secondary-index sec-ids))))))
 
-(deftest concurrent-tag-invalidation-timeline-test
+(deftest concurrent-secondary-invalidation-timeline-test
   (let [secondary-index SecondaryIndex/INSTANCE
         ids (mapv #(vector :concurrent-timeline %) (range 100))
         invalidations (doall (map deref
@@ -347,30 +354,30 @@
                   (.endInvalidation secondary-index invalidation))
                 invalidations))))))
 
-(deftest tagged-invalidation-across-caches-test
-  (testing "tag invalidation clears matching entries across cache instances"
+(deftest secondary-invalidation-across-caches-test
+  (testing "secondary-ID invalidation clears matching entries across cache instances"
     (let [calls-a (atom 0)
           calls-b (atom 0)
-          a (m/memo (fn [] (m/with-tag-id (swap! calls-a inc) :shared 1))
+          a (m/memo (fn [] (m/with-sec-id (swap! calls-a inc) [:shared 1]))
                     inf)
-          b (m/memo (fn [] (m/with-tag-id (swap! calls-b inc) :shared 1))
+          b (m/memo (fn [] (m/with-sec-id (swap! calls-b inc) [:shared 1]))
                     inf)]
       (is (= [1 1] [(a) (b)]))
       (is (= {nil 1} (as-map a)))
       (is (= {nil 1} (as-map b)))
-      (memo-clear-tag! :shared 1)
+      (memo-clear-sec-id! [:shared 1])
       (is (= {} (as-map a)))
       (is (= {} (as-map b)))
       (is (= [2 2] [(a) (b)]))
       (is (= {nil 2} (as-map a)))
       (is (= {nil 2} (as-map b))))))
 
-(deftest tagged-invalidation-across-scoped-caches-test
+(deftest secondary-invalidation-across-scoped-caches-test
   (let [calls (atom 0)
         root-cache (create inf)
         scoped-a (create inf)
         scoped-b (create inf)
-        f (m/bind (fn [] (m/with-tag-id (swap! calls inc) :user-id 1))
+        f (m/bind (fn [] (m/with-sec-id (swap! calls inc) [:user 1]))
                   {mc/tags :scoped}
                   root-cache)
         ready-a (promise)
@@ -389,7 +396,7 @@
       @ready-a
       @ready-b
       (is (= 3 @calls))
-      (memo-clear-tag! :user-id 1)
+      (memo-clear-sec-id! [:user 1])
       (is (empty? (b/as-map root-cache)))
       (is (empty? (b/as-map scoped-a)))
       (is (empty? (b/as-map scoped-b)))
@@ -401,20 +408,19 @@
       (is (= 6 @calls)))))
 
 (deftest secondary-index-does-not-require-mount-tag-test
-  (let [tag :unmounted-secondary-key
+  (let [sec-id :unmounted-secondary-key
         cache (create inf)
-        seed (m/bind (fn [] (m/with-tag-id :stale tag 1)) {} cache)
-        tag-id [tag 1]]
+        seed (m/bind (fn [] (m/with-sec-id :stale sec-id)) {} cache)]
     (seed)
     (is (= 1 (count (b/as-map cache))))
-    (memo-clear-tags! tag-id)
+    (memo-clear-sec-id! sec-id)
     (is (empty? (b/as-map cache)))))
 
 (deftest public-invalidation-lifecycle-test
   (let [cache (create inf)
-        f (m/bind (fn [value] (m/with-tag-id value :lifecycle value)) {} cache)]
+        f (m/bind (fn [value] (m/with-sec-id value [:lifecycle value])) {} cache)]
     (f 1)
-    (let [finish! (m/start-invalidation! [[:lifecycle 1]])]
+    (let [finish! (m/start-invalidation! [:lifecycle 1])]
       (is (= 1 (count (b/as-map cache))))
       (finish! true)
       (is (empty? (b/as-map cache)))
@@ -423,7 +429,7 @@
 
 (deftest with-invalidation-test
   (let [cache (create inf)
-        f (m/bind (fn [value] (m/with-tag-id value :with-invalidation value)) {} cache)]
+        f (m/bind (fn [value] (m/with-sec-id value [:with-invalidation value])) {} cache)]
     (f 1)
     (m/with-invalidation [[:with-invalidation 1]]
       :updated)
@@ -459,11 +465,11 @@
       (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! first-type
                   (fn [_ actual-ids state]
                     (swap! events conj [:end first-type actual-ids state])))
-      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! second-type
-                  (fn [_ actual-ids state]
-                    (swap! events conj [:end second-type actual-ids state])))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"first backend failed"
-                            (apply memo-clear-tags! ids)))
+       (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! second-type
+                   (fn [_ actual-ids state]
+                     (swap! events conj [:end second-type actual-ids state])))
+       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"first backend failed"
+                             ((apply start-invalidation! ids) true)))
       (is (= [:start :start :invalidate :invalidate :end :end]
              (mapv first @events)))
       (is (every? #(= ids (nth % 2)) @events))
@@ -493,7 +499,7 @@
         f (memo (fn []
                   (deliver load-started true)
                   @load-release
-                  (with-tag-id (swap! calls inc) :phase 1))
+                   (with-sec-id (swap! calls inc) [:phase 1]))
                 inf)]
     (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! backend-type
                 (fn [_ _] nil))
@@ -503,7 +509,7 @@
                   @release
                   state))
     (try
-      (let [invalidation (future (memo-clear-tag! :phase 1))]
+      (let [invalidation (future (memo-clear-sec-id! [:phase 1]))]
         @started
         (let [load (future (f))]
           @load-started
@@ -531,7 +537,7 @@
                       1 (do (deliver load-started true) @release-load)
                       2 (do (deliver retry-started true) @release-retry)
                       nil)
-                    (with-tag-id n :active-finish 1)))
+                     (with-sec-id n [:active-finish 1])))
                 inf)]
     (try
       (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! backend-type
@@ -539,7 +545,7 @@
                     (deliver invalidated true)
                     @release-invalidation
                     state))
-      (let [invalidation (future (memo-clear-tag! :active-finish 1))]
+      (let [invalidation (future (memo-clear-sec-id! [:active-finish 1]))]
         @invalidated
         (let [load (future (f))]
           @load-started
@@ -569,7 +575,7 @@
       (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! bad
                   (fn [_ _ state] (swap! events conj :bad-invalidate) state))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"start failed"
-                            (memo-clear-tag! :start-failure 1)))
+                             (memo-clear-sec-id! [:start-failure 1])))
       (is (not-any? #{:good-invalidate :bad-invalidate} @events))
       (is (some #{[:good-end :state]} @events))
       (finally
@@ -658,12 +664,12 @@
   (testing "bulk invalidation test"
     (let [a (atom 0)
           c (m/memo (fn [] (Thread/sleep 300)
-                      (m/with-tag-id (swap! a inc) :xx 1))
-                    (assoc inf mc/tags :xx))]
+                       (m/with-sec-id (swap! a inc) [:xx 1]))
+                    inf)]
       (future (Thread/sleep 15)
-              (m/memo-clear-tag! :xx 1))
+              (m/memo-clear-sec-id! [:xx 1]))
       (is (= 2 (c)))))
-  (testing "tag invalidation during load does not store stale result"
+  (testing "secondary-ID invalidation during load does not store stale result"
     (let [started (promise)
           release? (atom false)
           a (atom 0)
@@ -671,15 +677,15 @@
                       (deliver started true)
                       (while (not @release?)
                         (Thread/onSpinWait))
-                      (m/with-tag-id (swap! a inc) :yy 1))
+                      (m/with-sec-id (swap! a inc) [:yy 1]))
                     inf)
           load (future (c))]
       @started
-      (m/memo-clear-tag! :yy 1)
+      (m/memo-clear-sec-id! [:yy 1])
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map c)))))
-  (testing "tag invalidation fully contained within a load retries"
+  (testing "secondary-ID invalidation fully contained within a load retries"
     (let [started (promise)
           release (promise)
           calls (atom 0)
@@ -688,16 +694,16 @@
                         (when (= n 1)
                           (deliver started true)
                           @release)
-                        (m/with-tag-id n :contained 1)))
+                        (m/with-sec-id n [:contained 1])))
                     inf)
           load (future (c))]
       @started
-      (m/memo-clear-tag! :contained 1)
+      (m/memo-clear-sec-id! [:contained 1])
       (deliver release true)
       (is (= 2 @load))
       (is (= 2 @calls))
       (is (= {nil 2} (as-map c)))))
-  (testing "tag invalidation during load coordinates across caches"
+  (testing "secondary-ID invalidation during load coordinates across caches"
     (let [started (promise)
           release? (atom false)
           a-calls (atom 0)
@@ -706,14 +712,14 @@
                       (deliver started true)
                       (while (not @release?)
                         (Thread/onSpinWait))
-                      (m/with-tag-id (swap! a-calls inc) :zz 1))
+                      (m/with-sec-id (swap! a-calls inc) [:zz 1]))
                     inf)
-          b (m/memo (fn [] (m/with-tag-id (swap! b-calls inc) :zz 1))
+          b (m/memo (fn [] (m/with-sec-id (swap! b-calls inc) [:zz 1]))
                     inf)
           load (future (a))]
       (is (= 1 (b)))
       @started
-      (m/memo-clear-tag! :zz 1)
+      (m/memo-clear-sec-id! [:zz 1])
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map a)))
@@ -768,7 +774,7 @@
                           (deliver started true)
                           (while (not @release?)
                             (Thread/onSpinWait)))
-                        (m/with-tag-id n :timeline-release 1)))
+                        (m/with-sec-id n [:timeline-release 1])))
                     inf)]
       (is (= 1 (c)))
       ;; Leave the old secondary-index pointer behind, then let it encounter the new promise.
@@ -777,7 +783,7 @@
         @started
         (let [promise (first (vals (.asMap (:caffeine-cache (m/active-cache c)))))]
           (is (.hasTimeline ^memento.caffeine.SpecialPromise promise))
-          (m/memo-clear-tag! :timeline-release 1)
+          (m/memo-clear-sec-id! [:timeline-release 1])
           (is (not (.hasTimeline ^memento.caffeine.SpecialPromise promise))))
         (reset! release? true)
         (is (= 3 @load))
@@ -836,11 +842,11 @@
                           (do
                             (reset! retry-interrupted? (.isInterrupted (Thread/currentThread)))
                             (Thread/interrupted)))
-                        (m/with-tag-id n :unrelated-interrupt 1)))
+                        (m/with-sec-id n [:unrelated-interrupt 1])))
                     inf)
           load (future (c))]
       @started
-      (m/memo-clear-tag! :unrelated-interrupt 1)
+      (m/memo-clear-sec-id! [:unrelated-interrupt 1])
       (.interrupt ^Thread @loader-thread)
       (reset! release? true)
       (is (= 2 @load))

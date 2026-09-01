@@ -254,14 +254,14 @@
       (is (= 0 @call-count)))))
 
 ;; ---------------------------------------------------------------------------
-;; Interaction with secondary index (with-tag-id)
+;; Interaction with secondary index (with-sec-id)
 ;; ---------------------------------------------------------------------------
 
-(deftest variable-expiry-with-tag-id-test
-  (testing "with-tag-id works alongside variable expiry for tag-based invalidation"
+(deftest variable-expiry-with-sec-id-test
+  (testing "with-sec-id works alongside variable expiry for secondary-ID invalidation"
     (let [c (m/memo
               (fn [x]
-                (m/with-tag-id {:val x} :my-tag x))
+                (m/with-sec-id {:val x} [:my-tag x]))
               {}
              (assoc inf mcc/expiry
                     (reify Expiry
@@ -273,7 +273,7 @@
       (is (= {'(1) {:val 1} '(2) {:val 2} '(3) {:val 3}}
              (m/as-map c)))
       ;; invalidate by tag
-      (m/memo-clear-tag! :my-tag 2)
+      (m/memo-clear-sec-id! [:my-tag 2])
       (is (= {'(1) {:val 1} '(3) {:val 3}}
              (m/as-map c))))))
 

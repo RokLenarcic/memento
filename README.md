@@ -9,7 +9,7 @@ A Clojure memoization library with **scoped caching** and **smart invalidation**
 `clojure.core/memoize` and `clojure.core.memoize` provide basic caching, but real applications need:
 
 - **Scoped caching** - fresh cache per request/job/test, discarded when done (scopes can nest)
-- **Tag-based invalidation** - clear all cached data for an entity with one call  
+- **Secondary-index invalidation** - clear related cached data with one call
 - **N+1 query prevention** - populate single-item caches from bulk loads
 - **[Variable per-entry expiry](doc/advanced.md#variable-expiry)** - set TTL based on the cached value itself
 - **[2-3x better performance](doc/performance.md)** - backed by Caffeine
@@ -30,10 +30,10 @@ Memento's `with-caches` makes this trivial. While request handling is the most c
 
 ### Smart Invalidation
 
-When a user updates their profile, you need to invalidate all cached data about that user - across multiple functions. Memento's tag-based invalidation lets you do this with a single call:
+When a user updates their profile, invalidate all cached data about that user across multiple functions. Add the same secondary ID to each result, then invalidate it:
 
 ```clojure
-(m/memo-clear-tag! :user user-id)  ; Clears entries indexed by [:user user-id]
+(m/memo-clear-sec-id! [:user user-id])
 ```
 
 ### N+1 Query Prevention
@@ -221,52 +221,52 @@ Use `mc/ret-fn` to transform values before caching, or prevent caching certain v
 
 ### Invalidate When Data Changes
 
-Without tag-based invalidation, you face an N×M maintenance problem:
+Without secondary-index invalidation, you face an N×M maintenance problem:
 - You have **N cached functions** that read user data
 - You have **M functions** that modify user data
 - Every modifier must know about every cached function to invalidate it
 - Adding a new cached function means updating all M modifiers
 - Adding a new modifier means knowing all N cached functions
 
-Tag-based invalidation decouples them completely:
+Secondary IDs decouple them completely. They are arbitrary values; a vector such as `[:user user-id]` is a useful composite ID, but it is not a mount tag.
 
 ```clojure
-;; CACHED FUNCTIONS: just tag with :user, don't care who invalidates
+;; CACHED FUNCTIONS: index each result by its secondary ID.
 (m/defmemo get-user
-  {mc/type mc/caffeine, mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-user user-id)
-      (m/with-tag-id :user user-id)))
+      (m/with-sec-id [:user user-id])))
 
 (m/defmemo get-user-orders  
-  {mc/type mc/caffeine, mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-orders user-id)
-      (m/with-tag-id :user user-id)))
+      (m/with-sec-id [:user user-id])))
 
 (m/defmemo get-user-preferences
-  {mc/type mc/caffeine, mc/tags [:user]}
+  {mc/type mc/caffeine}
   [user-id]
   (-> (db/fetch-preferences user-id)
-      (m/with-tag-id :user user-id)))
+      (m/with-sec-id [:user user-id])))
 
-;; MODIFYING FUNCTIONS: just invalidate :user tag, don't care who's cached
+;; MODIFYING FUNCTIONS: invalidate that secondary ID.
 (defn update-user! [user-id data]
-  (db/update-user! user-id data)
-  (m/memo-clear-tag! :user user-id))
+  (m/with-invalidation [[:user user-id]]
+    (db/update-user! user-id data)))
 
 (defn delete-user! [user-id]
-  (db/delete-user! user-id)
-  (m/memo-clear-tag! :user user-id))
+  (m/with-invalidation [[:user user-id]]
+    (db/delete-user! user-id)))
 
 (defn merge-users! [from-id to-id]
-  (db/merge-users! from-id to-id)
-  (m/memo-clear-tags! [:user from-id] [:user to-id]))
+  (m/with-invalidation [[:user from-id] [:user to-id]]
+    (db/merge-users! from-id to-id)))
 ```
 
-Now you can add cached functions or modifying functions independently - they only need to agree on the tag name (`:user`).
+Now cached and modifying functions only need to agree on a secondary-ID scheme. `with-invalidation` starts the lockout before the write and clears matching entries when it succeeds, preventing an overlapping load from publishing stale data.
 
-A cached value can also be tagged with **multiple IDs** - useful for aggregated data like dashboards. See the [Invalidation Guide](doc/invalidation.md) for details.
+A cached value can have **multiple secondary IDs** - useful for aggregated data like dashboards. See the [Invalidation Guide](doc/invalidation.md) for details.
 
 ### Manually Clear Cache
 
@@ -300,7 +300,7 @@ Durations can be numbers (seconds) or `[amount :unit]` pairs:
 | `mc/size<` | Max entries (LRU eviction) | `1000` |
 | `mc/ttl` | Time-to-live | `[5 :m]` |
 | `mc/fade` | Expire after last access | `[10 :m]` |
-| `mc/tags` | Tags for scoping/invalidation | `[:user :request]` |
+| `mc/tags` | Mount tags for cache scoping and event broadcast | `[:request]` |
 | `mc/key-fn` | Transform args to cache key | `(fn [args] ...)` |
 | `mc/ret-fn` | Transform return value | `(fn [args val] ...)` |
 
@@ -309,7 +309,7 @@ See [Configuration Guide](doc/configuration.md) for all options.
 ## Further Documentation
 
 - **[Configuration Guide](doc/configuration.md)** - All configuration options, `key-fn`, `ret-fn`
-- **[Invalidation Guide](doc/invalidation.md)** - Cache clearing, tag-based invalidation
+- **[Invalidation Guide](doc/invalidation.md)** - Cache clearing and secondary-index invalidation
 - **[Scoped Caching Guide](doc/scoped-caching.md)** - `with-caches`, nested scopes, request patterns
 - **[Advanced Features](doc/advanced.md)** - Tiered caching, events, variable expiry
 - **[Performance](doc/performance.md)** - Benchmarks and comparisons

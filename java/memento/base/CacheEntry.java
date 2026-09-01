@@ -9,12 +9,12 @@ import clojure.lang.PersistentHashSet;
  */
 public final class CacheEntry {
     private final Object value;
-    private final IPersistentSet tagIdents;
+    private final IPersistentSet secIds;
     private final long writeEpoch;
 
-    public CacheEntry(Object value, IPersistentSet tagIdents, long writeEpoch) {
+    public CacheEntry(Object value, IPersistentSet secIds, long writeEpoch) {
         this.value = value;
-        this.tagIdents = tagIdents == null ? PersistentHashSet.EMPTY : tagIdents;
+        this.secIds = secIds == null ? PersistentHashSet.EMPTY : secIds;
         this.writeEpoch = writeEpoch;
     }
 
@@ -24,7 +24,7 @@ public final class CacheEntry {
             if (entryMeta.isNoCache()) {
                 throw new IllegalArgumentException("No-cache results are not stored cache entries");
             }
-            return new CacheEntry(entryMeta.getV(), entryMeta.getTagIdents(), writeEpoch);
+            return new CacheEntry(entryMeta.getV(), entryMeta.getSecIds(), writeEpoch);
         }
         return new CacheEntry(result, PersistentHashSet.EMPTY, writeEpoch);
     }
@@ -37,15 +37,15 @@ public final class CacheEntry {
         return value;
     }
 
-    public IPersistentSet getTagIdents() {
-        return tagIdents;
+    public IPersistentSet getSecIds() {
+        return secIds;
     }
 
     public long getWriteEpoch() {
         return writeEpoch;
     }
 
-    public boolean hasTagIdent(Object tagIdent) {
-        return tagIdents.contains(tagIdent);
+    public boolean hasSecId(Object secId) {
+        return secIds.contains(secId);
     }
 }

@@ -27,7 +27,7 @@ public final class SecondaryIndex {
 
     void add(CaffeineCache_ cache, CacheKey key, CacheEntry entry) {
         ensureCleanerStarted();
-        ISeq ids = entry.getTagIdents().seq();
+        ISeq ids = entry.getSecIds().seq();
         while (ids != null) {
             Object id = ids.first();
             lookup.compute(id, (ignored, current) -> {
@@ -44,11 +44,11 @@ public final class SecondaryIndex {
     }
 
     public boolean isInvalid(InvalidationTimeline.Operation start, EntryMeta object) {
-        return timeline.invalidated(start, (Set<?>) object.getTagIdents());
+        return timeline.invalidated(start, (Set<?>) object.getSecIds());
     }
 
     public boolean isInvalid(InvalidationTimeline.Operation start, CacheEntry object) {
-        return timeline.invalidated(start, (Set<?>) object.getTagIdents());
+        return timeline.invalidated(start, (Set<?>) object.getSecIds());
     }
 
     public InvalidationTimeline.Invalidation startInvalidation(Iterable<?> ids) {
@@ -79,7 +79,7 @@ public final class SecondaryIndex {
     }
 
     void removeKeys(CaffeineCache_ cache, CacheKey key, CacheEntry entry) {
-        ISeq ids = entry.getTagIdents().seq();
+        ISeq ids = entry.getSecIds().seq();
         while (ids != null) {
             Object id = ids.first();
             lookup.computeIfPresent(id, (ignored, entries) -> {

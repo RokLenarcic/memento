@@ -100,7 +100,7 @@ From 11 stack frames to 4.
 - **`ICache`**: Core cache interface with methods like `cached`, `invalidate`, `addEntries`
 - **`Segment`**: Function binding metadata
 - **`CacheKey`**: Composite key (id + args)
-- **`EntryMeta`**: Wrapper for cached values with metadata (tag IDs, no-cache flag)
+- **`EntryMeta`**: Wrapper for cached values with metadata (secondary IDs, no-cache flag)
 - **`InvalidationTimeline`**: Reusable operation/invalidation coordination
 - **`Durations`**: Time unit conversions
 
@@ -114,7 +114,7 @@ From 11 stack frames to 4.
 ### `memento.caffeine`
 
 - **`CaffeineCache_`**: Core Caffeine operations
-- **`SecondaryIndex`**: Maps tag+ID pairs to cache keys and coordinates Caffeine invalidation epochs
+- **`SecondaryIndex`**: Maps secondary IDs to cache keys and coordinates Caffeine invalidation epochs
 - **`Expiry`**: Interface for variable per-entry expiry
 - **`SpecialPromise`**: Promise that tracks invalidation state during loads
 
@@ -142,9 +142,9 @@ If a key is invalidated while being loaded:
 2. Load completes but result is discarded
 3. Cache retries the load with fresh data
 
-### Tag-Based Invalidation
+### Secondary-Index Invalidation
 
-Tag invalidation is more complex because:
+Secondary-index invalidation is more complex because:
 - Multiple keys may be affected
 - Ongoing loads may produce stale data
 - We need atomicity across multiple operations
@@ -169,18 +169,19 @@ widest practical overlap; cross-backend atomicity is not implied.
     secondary-invalidation timeline node immediately before invoking the cached function.
 2. Before publishing the result, compare the promise's scalar epoch with the segment and
     cache invalidation epochs. If the load predates either, discard it and retry.
-3. For a cacheable tagged result, add its secondary-index entries before calling `deliver`, so a
-    subsequent tag invalidation can find the pending promise. `deliver` checks whether any result
-    tag ID was active at the load's start or began invalidation before its timeline snapshot.
+3. For a cacheable result with secondary IDs, add its secondary-index entries before calling
+    `deliver`, so a subsequent secondary-ID invalidation can find the pending promise. `deliver`
+    checks whether any result secondary ID was active at the load's start or began invalidation
+    before its timeline snapshot.
 4. CAS-publish the candidate value onto the `SpecialPromise`, then replace the promise with the
     canonical `CacheEntry`. Failed candidates remove their secondary-index entries and retry.
 5. A `do-not-cache` result removes its promise from the map before delivery. It is still checked
-    against result-derived tag invalidation, but is never retained as a `CacheEntry`.
+    against result-derived secondary-ID invalidation, but is never retained as a `CacheEntry`.
 6. Callers already waiting on a successfully published promise receive its result
     directly; later callers read the `CacheEntry` from the map.
 
 The timeline is a forward-linked chain with serialized transition appends and lock-free reads.
-Each transition node contains the count of active invalidations per tag ID after that transition.
+Each transition node contains the count of active invalidations per secondary ID after that transition.
 A load's start node summarizes all earlier history, while start nodes appended through the finish
 node record invalidations that began during the load. The `SpecialPromise` retains the start node,
 so the JVM retains exactly the timeline suffix the load may need. Directly invalidating the promise
@@ -202,7 +203,7 @@ close this final handoff race. Closing it would require successful joiners to re
 map while still not providing an absolute guarantee for the loader itself.
 
 `memento.core/start-invalidation!` orchestrates the three backend lifecycle phases and returns a
-single-use completion function. `memo-clear-tags!` starts and immediately completes that lifecycle;
+single-use completion function. `memo-clear-sec-id!` starts and immediately completes that lifecycle;
 `with-invalidation` completes it after a successful body or ends it without invalidating when the
 body throws. Core does not create or interpret the Caffeine timeline state.
 
@@ -222,12 +223,12 @@ The transitions are:
 
 ### Thread Interruption
 
-When a tag invalidation finds a `SpecialPromise` through an existing secondary-index entry:
+When a secondary-ID invalidation finds a `SpecialPromise` through an existing secondary-index entry:
 - The loading thread is interrupted
 - This allows long-running loads to abort early
 - The load will be retried after invalidation completes
 
-For a first load whose result-derived tag IDs are not known yet, the timeline detects the
+For a first load whose result-derived secondary IDs are not known yet, the timeline detects the
 overlap when the result completes; such a load cannot be interrupted through the index.
 
 ### Reusing the Timeline
@@ -250,19 +251,16 @@ it as soon as the operation completes or is cancelled.
 
 ## Secondary Index
 
-The `SecondaryIndex` maintains mappings from tag+ID pairs to cache keys:
+The `SecondaryIndex` maintains mappings from secondary IDs to cache keys:
 
 ```
-Tag: :user
-  ID: 123 -> #{CacheKey[get-user, [123]], CacheKey[get-orders, [123]]}
-  ID: 456 -> #{CacheKey[get-user, [456]]}
-
-Tag: :order
-  ID: 789 -> #{CacheKey[get-order, [789]], CacheKey[get-order-items, [789]]}
+[:user 123] -> #{CacheKey[get-user, [123]], CacheKey[get-orders, [123]]}
+[:user 456] -> #{CacheKey[get-user, [456]]}
+[:order 789] -> #{CacheKey[get-order, [789]], CacheKey[get-order-items, [789]]}
 ```
 
-When `memo-clear-tag!` is called:
-1. Look up all cache keys for the tag+ID
+When `memo-clear-sec-id!` is called:
+1. Look up all cache keys for the secondary ID
 2. Invalidate each key in the cache
 3. Remove the mapping from the index
 
@@ -271,13 +269,13 @@ When `memo-clear-tag!` is called:
 Cached values are wrapped in `EntryMeta` which tracks:
 - The actual value
 - Whether to cache (`noCache` flag from `do-not-cache`)
-- Set of tag+ID pairs (for secondary index)
+- Set of secondary IDs (for secondary index)
 
 ```java
 public class EntryMeta {
     public final Object v;           // The cached value
     public final boolean noCache;    // If true, don't cache this
-    public final Set tagIdents;      // Set of [tag, id] pairs
+    public final Set secIds;         // Set of arbitrary secondary IDs
 }
 ```
 
@@ -339,7 +337,7 @@ Disable for production: `-Dmemento.reloadable=false`
 2. Caffeine lookup (miss) - triggers load function
 3. Load function calls original function with args
 4. Result wrapped in `EntryMeta`
-5. Applies `ret-fn`, extracts tag IDs
+5. Applies `ret-fn`, extracts secondary IDs
 6. If `noCache` flag set, returns without caching
 7. Otherwise stores in cache, updates secondary index
 8. Returns to caller
@@ -372,17 +370,17 @@ Register with multimethod:
   (->MyCache ...))
 
 (defmethod memento.base/start-secondary-invalidation! :my-cache-type
-  [_ tag-ids]
+   [_ sec-ids]
   ;; Establish a lightweight lockout and return backend-specific state.
   ...)
 
 (defmethod memento.base/invalidate-secondary! :my-cache-type
-  [_ tag-ids state]
+   [_ sec-ids state]
   ;; Invalidate active storage domains and return state for the end phase.
   state)
 
 (defmethod memento.base/end-secondary-invalidation! :my-cache-type
-  [_ tag-ids state]
+   [_ sec-ids state]
   ;; Release the backend lockout.
   nil)
 ```

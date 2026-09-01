@@ -15,12 +15,12 @@ public class EntryMeta {
 
     private Object v;
     private boolean noCache;
-    private IPersistentSet tagIdents;
+    private IPersistentSet secIds;
 
-    public EntryMeta(Object v, boolean noCache, IPersistentSet tagIdents) {
+    public EntryMeta(Object v, boolean noCache, IPersistentSet secIds) {
         this.v = v;
         this.noCache = noCache;
-        this.tagIdents = tagIdents == null ? PersistentHashSet.EMPTY : tagIdents;
+        this.secIds = secIds == null ? PersistentHashSet.EMPTY : secIds;
     }
 
     public Object getV() {
@@ -39,12 +39,12 @@ public class EntryMeta {
         this.noCache = noCache;
     }
 
-    public IPersistentSet getTagIdents() {
-        return tagIdents;
+    public IPersistentSet getSecIds() {
+        return secIds;
     }
 
-    public void setTagIdents(IPersistentSet tagIdents) {
-        this.tagIdents = tagIdents == null ? PersistentHashSet.EMPTY : tagIdents;
+    public void setSecIds(IPersistentSet secIds) {
+        this.secIds = secIds == null ? PersistentHashSet.EMPTY : secIds;
     }
 
     @Override
@@ -52,12 +52,12 @@ public class EntryMeta {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         EntryMeta entryMeta = (EntryMeta) o;
-        return noCache == entryMeta.noCache && Objects.equals(v, entryMeta.v) && tagIdents.equals(entryMeta.tagIdents);
+        return noCache == entryMeta.noCache && Objects.equals(v, entryMeta.v) && secIds.equals(entryMeta.secIds);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(v, noCache, tagIdents);
+        return Objects.hash(v, noCache, secIds);
     }
 
     @Override
@@ -65,7 +65,7 @@ public class EntryMeta {
         return "EntryMeta{" +
                 "v=" + v +
                 ", noCache=" + noCache +
-                ", tagIdents=" + tagIdents +
+                ", secIds=" + secIds +
                 '}';
     }
 }
