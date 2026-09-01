@@ -22,6 +22,11 @@ public final class InvalidationClock {
         return clock.getAndIncrement();
     }
 
+    // Reserves count unique write epochs and returns the first one.
+    public static long reserveWriteEpochs(int count) {
+        return clock.getAndAdd(count);
+    }
+
     public static void foreignUpdate(long foreignEpoch) {
         clock.getAndUpdate(v -> Long.max(foreignEpoch, v));
     }

@@ -203,6 +203,30 @@ For better atomicity when invalidating multiple entities:
 
 This ensures all invalidations happen together, preventing race conditions where some data is cleared but related data isn't.
 
+### Invalidation Around a Write
+
+Start the invalidation before changing underlying data when a concurrent cache load could otherwise
+read stale data during the write. The returned function is single-use: call it with `true` after a
+successful write to clear matching entries, or `false` after a failed write to only end the lockout.
+
+```clojure
+(let [finish! (m/start-invalidation! [[:user user-id]])]
+  (try
+    (db/update-user! user-id data)
+    (finish! true)
+    (catch Throwable t
+      (finish! false)
+      (throw t))))
+```
+
+`with-invalidation` provides the same lifecycle and ends the lockout without clearing if its body
+throws:
+
+```clojure
+(m/with-invalidation [[:user user-id]]
+  (db/update-user! user-id data))
+```
+
 ## Manually Adding Cache Entries
 
 You can pre-populate or manually update cache entries:
@@ -310,7 +334,7 @@ If multiple threads request the same uncached key simultaneously, only one actua
 
 ### Invalidation During Load
 
-If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when a tag is invalidated. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
+If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when an invalidation finds its `SpecialPromise` through an existing index entry; first loads with result-derived tag IDs are instead detected by timeline validation when they complete. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
 
 ### The Call Tree Problem
 
@@ -339,7 +363,10 @@ When you invalidate both caches, there's a race condition:
 
 #### Tag-Based Invalidation with Lockout
 
-When using secondary-index invalidation (`memo-clear-tag!`), Memento uses an epoch lockout while each loaded cache backend clears its own indexes. This coordinates concurrent loads without relying on mount tags.
+When using secondary-index invalidation (`memo-clear-tag!`, `start-invalidation!`, or
+`with-invalidation`), Memento records serialized start and end transitions on a timeline while each
+loaded cache backend clears its own indexes. Timeline reads remain lock-free, and loads validate the
+timeline before publication to coordinate concurrent loads without relying on mount tags.
 
 ```clojure
 ;; Tag-based invalidation coordinates across functions

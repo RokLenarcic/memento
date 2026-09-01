@@ -27,8 +27,9 @@ public class CaffeineCache_ {
         return Long.max(segment.getInvalidationEpoch(), cacheEpoch);
     }
 
-    private long lastInvalidation(Segment segment, IPersistentSet ids) {
-        return Long.max(lastInvalidation(segment), SecondaryIndex.INSTANCE.lastInvalidatedEpoch(ids));
+    private boolean beingInvalidated(Segment segment, CacheEntry entry) {
+        return entry.getWriteEpoch() <= lastInvalidation(segment)
+               || SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getTagIdents());
     }
 
     public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn) {
@@ -46,52 +47,65 @@ public class CaffeineCache_ {
             SpecialPromise promise = new SpecialPromise(InvalidationClock.current());
             Object cached = delegate.asMap().putIfAbsent(key, promise);
             if (cached == null) {
-                SecondaryIndex.LoadEntry load = SecondaryIndex.INSTANCE.addLoad(this, promise);
                 try {
-                    promise.ownerThread();
+                    memento.base.InvalidationTimeline.Operation operation = SecondaryIndex.INSTANCE.startOperation();
+                    promise.startLoad(operation);
                     // calculate value
                     Object result = AFn.applyToHelper(segment.getF(), args);
                     if (retFn != null) {
                         result = retFn.invoke(args, result);
                     }
-                    if (promise.deliver(result, lastInvalidation(segment))) {
-                        if (result instanceof EntryMeta && ((EntryMeta) result).isNoCache()) {
-                            IPersistentSet ids = ((EntryMeta) result).getTagIdents();
-                            if (!SecondaryIndex.INSTANCE.finishLoad(load, ids, () -> delegate.asMap().remove(key, promise))) {
-                                delegate.asMap().remove(key, promise);
+                    if (result instanceof EntryMeta) {
+                        EntryMeta metadata = (EntryMeta) result;
+                        IPersistentSet ids = metadata.getTagIdents();
+                        if (metadata.isNoCache()) {
+                            if (delegate.asMap().remove(key, promise)
+                                    && promise.deliver(result, lastInvalidation(segment))) {
+                                return EntryMeta.unwrap(result);
+                            } else {
                                 promise.reject();
                                 continue;
                             }
-                        } else {
+                        }
+                        if (ids.count() != 0) {
                             CacheEntry entry = CacheEntry.fromResult(result, InvalidationClock.claimWriteEpoch());
-                            // if valid add to secondary index
                             SecondaryIndex.INSTANCE.add(this, key, entry);
-                            if (!SecondaryIndex.INSTANCE.finishLoad(load, entry.getTagIdents(),
-                                                                   () -> delegate.asMap().replace(key, promise, entry))) {
+                            if (promise.deliver(result, lastInvalidation(segment))
+                            && delegate.asMap().replace(key, promise, entry)) {
+                                return EntryMeta.unwrap(result);
+                            } else {
                                 SecondaryIndex.INSTANCE.removeKeys(this, key, entry);
                                 delegate.asMap().remove(key, promise);
                                 promise.reject();
                                 continue;
                             }
                         }
-                    } else {
+                    }
+                    // fall through for non-EntryMeta and EntryMeta that is not isNoCache and no Sec IDs
+                    CacheEntry entry = CacheEntry.fromResult(result, InvalidationClock.claimWriteEpoch());
+                    if (!promise.deliver(result, lastInvalidation(segment))) {
                         delegate.asMap().remove(key, promise);
+                        promise.reject();
+                        continue;
+                    }
+                    if (!delegate.asMap().replace(key, promise, entry)) {
+                        promise.reject();
                         continue;
                     }
                     return EntryMeta.unwrap(result);
                 } catch (Throwable t) {
                     delegate.asMap().remove(key, promise);
-                    if (promise.isInvalid() || promise.hasInvalidatedIds()) {
-                        Thread.interrupted();
-                    } else {
-                        promise.deliverException(retExFn == null ? t : (Throwable) retExFn.invoke(args, t));
-                        throw t;
+                    if (!promise.isInvalid()) {
+                        Throwable delivered = retExFn == null ? t : (Throwable) retExFn.invoke(args, t);
+                        if (promise.deliverException(delivered)) {
+                            throw t;
+                        }
                     }
                 } finally {
-                    SecondaryIndex.INSTANCE.removeLoad(load);
                     promise.releaseResult();
                 }
             } else {
+                promise.releaseTimeline();
                 // join into ongoing load
                 if (cached instanceof SpecialPromise) {
                     SpecialPromise sp = (SpecialPromise) cached;
@@ -102,7 +116,7 @@ public class CaffeineCache_ {
                     }
                 } else {
                     CacheEntry entry = (CacheEntry) cached;
-                    if (entry.getWriteEpoch() <= lastInvalidation(segment, entry.getTagIdents())) {
+                    if (beingInvalidated(segment, entry)) {
                         delegate.asMap().remove(key, entry);
                         continue;
                     }
@@ -125,7 +139,7 @@ public class CaffeineCache_ {
             return ret == absent ? absent : EntryMeta.unwrap(ret);
         } else {
             CacheEntry entry = (CacheEntry) v;
-            if (entry.getWriteEpoch() <= lastInvalidation(segment, entry.getTagIdents())) {
+            if (beingInvalidated(segment, entry)) {
                 delegate.asMap().remove(key, entry);
                 return absent;
             }
@@ -160,21 +174,19 @@ public class CaffeineCache_ {
         delegate.invalidateAll();
     }
 
-    public boolean invalidateIndexed(CacheKey key, long indexedEpoch, long invalidationEpoch) {
-        Object current = delegate.asMap().computeIfPresent(key, (ignored, value) -> {
+    public void invalidateIndexed(CacheKey key, long indexedEpoch) {
+        delegate.asMap().computeIfPresent(key, (ignored, value) -> {
             if (value instanceof SpecialPromise) {
                 ((SpecialPromise) value).invalidate();
                 return null;
             }
             CacheEntry entry = (CacheEntry) value;
-            return entry.getWriteEpoch() == indexedEpoch && entry.getWriteEpoch() < invalidationEpoch
-                   ? null
-                   : entry;
+            return entry.getWriteEpoch() == indexedEpoch ? null : entry;
         });
-        return current == null || ((CacheEntry) current).getWriteEpoch() != indexedEpoch;
     }
 
     public void addEntries(Segment segment, IPersistentMap argsToVals) {
+        long writeEpoch = InvalidationClock.reserveWriteEpochs(argsToVals.count());
         for (Object o : argsToVals) {
             MapEntry entry = (MapEntry) o;
             CacheKey key = keyFn.apply(segment, RT.seq(entry.getKey()));
@@ -182,8 +194,9 @@ public class CaffeineCache_ {
             if (val instanceof EntryMeta && ((EntryMeta) val).isNoCache()) {
                 delegate.invalidate(key);
             } else {
-                putEntry(key, CacheEntry.fromResult(val, InvalidationClock.claimWriteEpoch()));
+                putEntry(key, CacheEntry.fromResult(val, writeEpoch));
             }
+            writeEpoch++;
         }
     }
 
@@ -196,34 +209,32 @@ public class CaffeineCache_ {
     }
 
     public void loadData(Map map) {
-        map.forEach((Object k, Object v) -> {
-            List<Object> list = (List<Object>) k;
+        long writeEpoch = InvalidationClock.reserveWriteEpochs(map.size());
+        for (Object o : map.entrySet()) {
+            Map.Entry entry = (Map.Entry) o;
+            List<Object> list = (List<Object>) entry.getKey();
             CacheKey key = new CacheKey(list.get(0), list.get(1));
-            if (v instanceof EntryMeta && ((EntryMeta) v).isNoCache()) {
+            Object value = entry.getValue();
+            if (value instanceof EntryMeta && ((EntryMeta) value).isNoCache()) {
                 delegate.invalidate(key);
             } else {
-                putEntry(key, CacheEntry.fromResult(v, InvalidationClock.claimWriteEpoch()));
+                putEntry(key, CacheEntry.fromResult(value, writeEpoch));
             }
-        });
+            writeEpoch++;
+        }
     }
 
     private void putEntry(CacheKey key, CacheEntry entry) {
         if (entry.getTagIdents().count() == 0) {
             delegate.put(key, entry);
-            return;
-        }
-        SpecialPromise invalidationTarget = new SpecialPromise(InvalidationClock.current());
-        SecondaryIndex.LoadEntry load = SecondaryIndex.INSTANCE.addLoad(this, invalidationTarget);
-        try {
+        } else {
+            memento.base.InvalidationTimeline.Operation operation = SecondaryIndex.INSTANCE.startOperation();
             delegate.put(key, entry);
             SecondaryIndex.INSTANCE.add(this, key, entry);
-            if (!SecondaryIndex.INSTANCE.finishLoad(load, entry.getTagIdents(), () -> true)) {
+            if (SecondaryIndex.INSTANCE.isInvalid(operation, entry)) {
                 SecondaryIndex.INSTANCE.removeKeys(this, key, entry);
                 delegate.asMap().remove(key, entry);
             }
-        } finally {
-            SecondaryIndex.INSTANCE.removeLoad(load);
-            invalidationTarget.releaseResult();
         }
     }
 

@@ -3,7 +3,7 @@
   {:author "Rok Lenarčič"}
   (:require [memento.base :as b])
   (:import (java.util.concurrent TimeUnit)
-           (memento.base CacheEntry Durations CacheKey EntryMeta ICache Segment)
+           (memento.base CacheEntry Durations CacheKey ICache InvalidationTimeline$Invalidation Segment)
            (com.github.benmanes.caffeine.cache Caffeine Weigher Ticker)
            (memento.caffeine CaffeineCache_ SecondaryIndex SpecialPromise Expiry)
            (memento.mount IMountPoint)))
@@ -111,12 +111,12 @@
 (defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ ids]
   (.startInvalidation SecondaryIndex/INSTANCE ids))
 
-(defmethod b/invalidate-secondary! :memento.core/caffeine [_ ids epoch]
-  (.invalidate SecondaryIndex/INSTANCE ids epoch)
-  epoch)
+(defmethod b/invalidate-secondary! :memento.core/caffeine [_ _ids ^InvalidationTimeline$Invalidation state]
+  (.invalidate SecondaryIndex/INSTANCE state)
+  state)
 
-(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ ids epoch]
-  (.endInvalidation SecondaryIndex/INSTANCE ids epoch))
+(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ _ids ^InvalidationTimeline$Invalidation state]
+  (.endInvalidation SecondaryIndex/INSTANCE state))
 
 (defn stats
   "Return caffeine stats for the cache if it is a caffeine Cache.

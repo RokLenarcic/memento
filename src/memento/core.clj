@@ -168,14 +168,43 @@
     (.handleEvent ^IMountPoint f-or-tag evt)
     (->> (mounts-by-tag f-or-tag)
          (eduction (map #(.handleEvent ^IMountPoint % evt)))
-         dorun)))
+          dorun)))
+
+(declare start-invalidation!)
 
 (defn memo-clear-tags!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything.
 
-  Expects a collection of [tag id] pairs."
+   Expects a collection of [tag id] pairs."
   [& tag+ids]
-  (base/invalidate-secondary-all! tag+ids))
+  ((start-invalidation! tag+ids) true))
+
+(defn start-invalidation!
+  "Start a secondary-index invalidation for tag + ID pairs.
+
+   Returns a single-use function accepting a boolean. Call it with true after the
+   underlying change succeeds to invalidate matching entries and end the lockout;
+   call it with false to end the lockout without invalidating."
+  [tag-ids]
+  (base/start-secondary-invalidation-all! tag-ids))
+
+(defmacro with-invalidation
+  "Run body while matching secondary-index invalidations are locked out.
+
+   Invalidates matching entries after body returns normally. If body throws, ends
+   the lockout without invalidating and rethrows the original exception."
+  [tag-ids & body]
+  `(let [finish# (start-invalidation! ~tag-ids)]
+     (let [result# (try
+                     (do ~@body)
+                     (catch Throwable t#
+                       (try
+                         (finish# false)
+                         (catch Throwable cleanup#
+                           (.addSuppressed t# cleanup#)))
+                       (throw t#)))]
+       (finish# true)
+       result#)))
 
 (defn memo-clear-tag!
   "Invalidate all entries that have the specified tag + id metadata. ID can be anything."

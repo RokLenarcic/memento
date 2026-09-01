@@ -101,6 +101,7 @@ From 11 stack frames to 4.
 - **`Segment`**: Function binding metadata
 - **`CacheKey`**: Composite key (id + args)
 - **`EntryMeta`**: Wrapper for cached values with metadata (tag IDs, no-cache flag)
+- **`InvalidationTimeline`**: Reusable operation/invalidation coordination
 - **`Durations`**: Time unit conversions
 
 ### `memento.mount`
@@ -130,7 +131,7 @@ From 11 stack frames to 4.
 
 Caffeine ensures only one load happens per key. If multiple threads request the same uncached key simultaneously:
 1. First thread starts the load
-2. Other threads wait on a `CompletableFuture`
+2. Other threads wait on the in-flight `SpecialPromise`
 3. When load completes, all threads get the result
 
 ### Invalidation During Load
@@ -157,49 +158,53 @@ Tag invalidation is more complex because:
 
 Secondary-index invalidation is backend-owned and does not enumerate mount points. The
 Caffeine backend uses one JVM-wide index containing weak cache/key references and local
-epochs. Distributed backends can use native indexes and backend-specific epochs. Starting
+invalidation timeline. Distributed backends can use native indexes and backend-specific
+coordination. Starting
 all backends before running any potentially slow invalidator gives their lockout windows the
 widest practical overlap; cross-backend atomicity is not implied.
 
 #### Load Sequence (with tag checking)
 
-1. Publish a `SpecialPromise` for the key and capture the current `InvalidationClock`
-   value as the candidate load's epoch.
-2. If this thread published the promise, register the load with the secondary index and
-   invoke the cached function.
-3. Before publishing the result, compare the load's epoch with the segment and
-   cache invalidation epochs. If the load predates either, discard it and retry.
-4. Otherwise CAS-publish the value onto the `SpecialPromise` via `deliver`.
-   Concurrent `invalidate()` calls also CAS the promise to `EntryMeta.absent`;
-   whichever wins determines the outcome. If `deliver` lost the race, the loader
-   removes the entry from the delegate map and retries.
-5. After `deliver` wins, `finishLoad` checks active tag invalidation epochs, tag IDs
-   recorded on the promise, and whether the promise was directly invalidated after
-   delivery. If valid, it publishes the canonical `CacheEntry`; otherwise the loader
-   rejects the delivered result and retries.
+1. Publish a `SpecialPromise` for the key. If this thread published it, retain the current
+    secondary-invalidation timeline node immediately before invoking the cached function.
+2. Before publishing the result, compare the promise's scalar epoch with the segment and
+    cache invalidation epochs. If the load predates either, discard it and retry.
+3. For a cacheable tagged result, add its secondary-index entries before calling `deliver`, so a
+    subsequent tag invalidation can find the pending promise. `deliver` checks whether any result
+    tag ID was active at the load's start or began invalidation before its timeline snapshot.
+4. CAS-publish the candidate value onto the `SpecialPromise`, then replace the promise with the
+    canonical `CacheEntry`. Failed candidates remove their secondary-index entries and retry.
+5. A `do-not-cache` result removes its promise from the map before delivery. It is still checked
+    against result-derived tag invalidation, but is never retained as a `CacheEntry`.
 6. Callers already waiting on a successfully published promise receive its result
-   directly; later callers read the `CacheEntry` from the map.
+    directly; later callers read the `CacheEntry` from the map.
 
-Load registration intentionally happens after winning `putIfAbsent` and immediately before
-invoking the cached function. A tag invalidation can therefore complete between promise
-publication and registration without marking the promise. This is treated as the load
-starting after that invalidation because no user computation has begun yet. Registering
-before publication would close that internal handoff window, but would require an extra map
-lookup on misses and more complex ownership cleanup without protecting against the external
-gap between mutating the underlying data and calling invalidation. Once function invocation
-begins, the registration and epoch checks prevent an overlapping invalidation from allowing
-the load to publish stale data.
+The timeline is a forward-linked chain with serialized transition appends and lock-free reads.
+Each transition node contains the count of active invalidations per tag ID after that transition.
+A load's start node summarizes all earlier history, while start nodes appended through the finish
+node record invalidations that began during the load. The `SpecialPromise` retains the start node,
+so the JVM retains exactly the timeline suffix the load may need. Directly invalidating the promise
+releases this reference immediately, even if user code ignores interruption and continues running.
+
+For manual tagged insertion, the cache captures an operation boundary, writes the delegate entry,
+adds the index entries, and validates the operation against the timeline. An invalidation before
+or during index registration is detected by that validation and removes both registrations; one
+after successful validation finds the fully registered index entry. Index entry write epochs are
+generation identifiers that prevent stale index pointers from removing replacement values; they
+do not order secondary invalidations.
 
 There is a narrow publication-boundary gap: after the promise has been replaced by a
 `CacheEntry`, an invalidation can remove that entry while a caller already holding the
 detached, successfully delivered promise still returns its value. The loader can likewise
 return its computed value after concurrent removal. Memento detects invalidations during
-meaningful load execution through epochs and promise invalidation, but does not attempt to
+meaningful load execution through the timeline and promise invalidation, but does not attempt to
 close this final handoff race. Closing it would require successful joiners to re-read the
 map while still not providing an absolute guarantee for the loader itself.
 
-`memento.core/memo-clear-tags!` orchestrates the three backend lifecycle phases. Core does
-not create or interpret invalidation epochs.
+`memento.core/start-invalidation!` orchestrates the three backend lifecycle phases and returns a
+single-use completion function. `memo-clear-tags!` starts and immediately completes that lifecycle;
+`with-invalidation` completes it after a successful body or ends it without invalidating when the
+body throws. Core does not create or interpret the Caffeine timeline state.
 
 #### Promise Result CAS
 
@@ -217,10 +222,31 @@ The transitions are:
 
 ### Thread Interruption
 
-When a tag is invalidated while a load is in progress for an entry with that tag:
+When a tag invalidation finds a `SpecialPromise` through an existing secondary-index entry:
 - The loading thread is interrupted
 - This allows long-running loads to abort early
 - The load will be retried after invalidation completes
+
+For a first load whose result-derived tag IDs are not known yet, the timeline detects the
+overlap when the result completes; such a load cannot be interrupted through the index.
+
+### Reusing the Timeline
+
+`memento.base.InvalidationTimeline` is a public JVM utility for cache implementations with
+the same coordination problem. It exposes opaque `Operation` and `Invalidation` handles:
+
+```java
+InvalidationTimeline timeline = new InvalidationTimeline();
+InvalidationTimeline.Operation operation = timeline.startOperation();
+InvalidationTimeline.Invalidation invalidation = timeline.startInvalidation(ids);
+// invalidate indexed storage
+timeline.endInvalidation(invalidation);
+boolean retry = timeline.invalidated(operation, resultIds);
+```
+
+An operation handle is the timeline node itself, so capturing it does not allocate. Holding
+the handle keeps subsequent history reachable; implementations should release references to
+it as soon as the operation completes or is cancelled.
 
 ## Secondary Index
 

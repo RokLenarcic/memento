@@ -295,27 +295,57 @@
     (is (= {[1] 10} (do (memo-clear-tag! :tag :old) (as-map f))))
     (is (= {} (do (memo-clear-tag! :tag :new) (as-map f))))))
 
-(deftest overlapping-tag-invalidation-epochs-test
+(deftest batch-write-epochs-distinguish-collapsed-keys
+  (let [f (memo identity (assoc inf mc/key-fn (constantly [])))]
+    (memo-add! f (array-map [1] (with-tag-id :old :batch :old)
+                              [2] (with-tag-id :new :batch :new)))
+    (is (= :new (f 1)))
+    (memo-clear-tag! :batch :old)
+    (is (= :new (f 1)))
+    (memo-clear-tag! :batch :new)
+    (is (empty? (as-map f)))))
+
+(deftest overlapping-tag-invalidations-test
   (let [tag-invalidation SecondaryIndex/INSTANCE
         tag-idents #{[:tag 1]}
         older (.startInvalidation tag-invalidation tag-idents)
         newer (.startInvalidation tag-invalidation tag-idents)]
-    (is (= newer (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (.endInvalidation tag-invalidation tag-idents older)
-    (is (= newer (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (.endInvalidation tag-invalidation tag-idents newer)
-    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation nil)))
-    (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation #{}))))
+    (is (.hasActiveInvalidation tag-invalidation tag-idents))
+    (.endInvalidation tag-invalidation older)
+    (is (.hasActiveInvalidation tag-invalidation tag-idents))
+    (.endInvalidation tag-invalidation newer)
+    (is (not (.hasActiveInvalidation tag-invalidation tag-idents)))
+    (is (not (.hasActiveInvalidation tag-invalidation nil)))
+    (is (not (.hasActiveInvalidation tag-invalidation #{}))))
   (testing "older invalidation remains visible when a newer one finishes first"
     (let [tag-invalidation SecondaryIndex/INSTANCE
           tag-idents #{[:tag 1]}
           older (.startInvalidation tag-invalidation tag-idents)
           newer (.startInvalidation tag-invalidation tag-idents)]
-      (.endInvalidation tag-invalidation tag-idents newer)
-      (is (= older (.lastInvalidatedEpoch tag-invalidation tag-idents)))
-      (.endInvalidation tag-invalidation tag-idents older)
-      (is (= Long/MIN_VALUE (.lastInvalidatedEpoch tag-invalidation tag-idents))))))
+      (.endInvalidation tag-invalidation newer)
+      (is (.hasActiveInvalidation tag-invalidation tag-idents))
+      (.endInvalidation tag-invalidation older)
+      (is (not (.hasActiveInvalidation tag-invalidation tag-idents))))))
+
+(deftest concurrent-tag-invalidation-timeline-test
+  (let [secondary-index SecondaryIndex/INSTANCE
+        ids (mapv #(vector :concurrent-timeline %) (range 100))
+        invalidations (doall (map deref
+                                  (map #(future [% (.startInvalidation secondary-index [%])]) ids)))
+        ended? (atom false)]
+    (try
+      (is (every? #(.hasActiveInvalidation secondary-index #{%}) ids))
+      (dorun (map deref
+                  (map (fn [[id invalidation]]
+                         (future (.endInvalidation secondary-index invalidation)))
+                       invalidations)))
+      (reset! ended? true)
+      (is (not-any? #(.hasActiveInvalidation secondary-index #{%}) ids))
+      (finally
+        (when-not @ended?
+          (run! (fn [[_ invalidation]]
+                  (.endInvalidation secondary-index invalidation))
+                invalidations))))))
 
 (deftest tagged-invalidation-across-caches-test
   (testing "tag invalidation clears matching entries across cache instances"
@@ -379,6 +409,30 @@
     (is (= 1 (count (b/as-map cache))))
     (memo-clear-tags! tag-id)
     (is (empty? (b/as-map cache)))))
+
+(deftest public-invalidation-lifecycle-test
+  (let [cache (create inf)
+        f (m/bind (fn [value] (m/with-tag-id value :lifecycle value)) {} cache)]
+    (f 1)
+    (let [finish! (m/start-invalidation! [[:lifecycle 1]])]
+      (is (= 1 (count (b/as-map cache))))
+      (finish! true)
+      (is (empty? (b/as-map cache)))
+      (is (thrown-with-msg? IllegalStateException #"already completed"
+                            (finish! true))))))
+
+(deftest with-invalidation-test
+  (let [cache (create inf)
+        f (m/bind (fn [value] (m/with-tag-id value :with-invalidation value)) {} cache)]
+    (f 1)
+    (m/with-invalidation [[:with-invalidation 1]]
+      :updated)
+    (is (empty? (b/as-map cache)))
+    (f 1)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"write failed"
+                          (m/with-invalidation [[:with-invalidation 1]]
+                            (throw (ex-info "write failed" {})))))
+    (is (= 1 (count (b/as-map cache))))))
 
 (deftest secondary-invalidation-dispatch-test
   (let [events (atom [])
@@ -519,11 +573,11 @@
       (is (not-any? #{:good-invalidate :bad-invalidate} @events))
       (is (some #{[:good-end :state]} @events))
       (finally
-        (doseq [multifn [b/start-secondary-invalidation!
-                         b/invalidate-secondary!
-                         b/end-secondary-invalidation!]
-                cache-type [good bad]]
-          (remove-method multifn cache-type))))))
+        (run! (fn [multifn]
+                (run! #(remove-method multifn %) [good bad]))
+              [b/start-secondary-invalidation!
+               b/invalidate-secondary!
+               b/end-secondary-invalidation!])))))
 
 (deftest fire-event-test
   (testing "event is fired on referenced cache"
@@ -625,6 +679,24 @@
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map c)))))
+  (testing "tag invalidation fully contained within a load retries"
+    (let [started (promise)
+          release (promise)
+          calls (atom 0)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (when (= n 1)
+                          (deliver started true)
+                          @release)
+                        (m/with-tag-id n :contained 1)))
+                    inf)
+          load (future (c))]
+      @started
+      (m/memo-clear-tag! :contained 1)
+      (deliver release true)
+      (is (= 2 @load))
+      (is (= 2 @calls))
+      (is (= {nil 2} (as-map c)))))
   (testing "tag invalidation during load coordinates across caches"
     (let [started (promise)
           release? (atom false)
@@ -664,6 +736,52 @@
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map c)))))
+  (testing "direct invalidation releases the rejected load's timeline"
+    (let [started (promise)
+          release? (atom false)
+          calls (atom 0)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (when (= n 1)
+                          (deliver started true)
+                          (while (not @release?)
+                            (Thread/onSpinWait)))
+                        n))
+                    inf)
+          load (future (c))]
+      @started
+      (let [promise (first (vals (.asMap (:caffeine-cache (m/active-cache c)))))]
+        (is (instance? memento.caffeine.SpecialPromise promise))
+        (is (.hasTimeline ^memento.caffeine.SpecialPromise promise))
+        (m/memo-clear! c)
+        (is (not (.hasTimeline ^memento.caffeine.SpecialPromise promise))))
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (= 2 @calls))))
+  (testing "secondary invalidation releases the rejected load's timeline"
+    (let [started (promise)
+          release? (atom false)
+          calls (atom 0)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (when (= n 2)
+                          (deliver started true)
+                          (while (not @release?)
+                            (Thread/onSpinWait)))
+                        (m/with-tag-id n :timeline-release 1)))
+                    inf)]
+      (is (= 1 (c)))
+      ;; Leave the old secondary-index pointer behind, then let it encounter the new promise.
+      (m/memo-clear! c)
+      (let [load (future (c))]
+        @started
+        (let [promise (first (vals (.asMap (:caffeine-cache (m/active-cache c)))))]
+          (is (.hasTimeline ^memento.caffeine.SpecialPromise promise))
+          (m/memo-clear-tag! :timeline-release 1)
+          (is (not (.hasTimeline ^memento.caffeine.SpecialPromise promise))))
+        (reset! release? true)
+        (is (= 3 @load))
+        (is (= 3 @calls)))))
   (testing "cache invalidation during load does not store stale result"
     (let [started (promise)
           release? (atom false)
@@ -680,6 +798,53 @@
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map c)))))
+  (testing "direct invalidation clears its interrupt before retry"
+    (let [started (promise)
+          release? (atom false)
+          retry-interrupted? (atom nil)
+          calls (atom 0)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (if (= n 1)
+                          (do
+                            (deliver started true)
+                            (while (not @release?)
+                              (Thread/onSpinWait)))
+                          (reset! retry-interrupted? (.isInterrupted (Thread/currentThread))))
+                        n))
+                    inf)
+          load (future (c))]
+      @started
+      (m/memo-clear! c)
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (false? @retry-interrupted?))))
+  (testing "timeline-only retry preserves an unrelated interrupt"
+    (let [started (promise)
+          release? (atom false)
+          loader-thread (promise)
+          retry-interrupted? (atom nil)
+          calls (atom 0)
+          c (m/memo (fn []
+                      (let [n (swap! calls inc)]
+                        (if (= n 1)
+                          (do
+                            (deliver loader-thread (Thread/currentThread))
+                            (deliver started true)
+                            (while (not @release?)
+                              (Thread/onSpinWait)))
+                          (do
+                            (reset! retry-interrupted? (.isInterrupted (Thread/currentThread)))
+                            (Thread/interrupted)))
+                        (m/with-tag-id n :unrelated-interrupt 1)))
+                    inf)
+          load (future (c))]
+      @started
+      (m/memo-clear-tag! :unrelated-interrupt 1)
+      (.interrupt ^Thread @loader-thread)
+      (reset! release? true)
+      (is (= 2 @load))
+      (is (true? @retry-interrupted?))))
   (testing "load started after invalidation can publish result"
     (let [a (atom 0)
           c (m/memo (fn [] (swap! a inc)) inf)]

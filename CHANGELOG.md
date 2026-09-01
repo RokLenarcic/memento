@@ -5,6 +5,8 @@
 - Secondary-index invalidation is now implemented by cache backend methods via
   the `start-secondary-invalidation!`, `invalidate-secondary!`, and
   `end-secondary-invalidation!` lifecycle; mount tags are no longer required.
+- Added `memento.core/start-invalidation!` and `memento.core/with-invalidation` for keeping
+  cache loads out of the interval around an underlying write.
 - Core no longer owns a universal invalidation epoch. Each cache backend owns its
   secondary-index storage domains and concurrency model.
 - **Breaking change for cache implementors:** removed `invalidateIds` from

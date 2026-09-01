@@ -6,8 +6,9 @@
   {:author "Rok Lenarčič"}
   (:require [memento.config :as config])
   (:import (clojure.lang AFn)
-           (memento.base CacheEntry EntryMeta ICache)
-           (java.util ArrayList)))
+            (memento.base CacheEntry EntryMeta ICache)
+            (java.util ArrayList)
+            (java.util.concurrent.atomic AtomicBoolean)))
 
 (def absent "Value that signals absent key." EntryMeta/absent)
 
@@ -82,19 +83,30 @@
     (catch Throwable t
       (record-failure! failures t))))
 
-(defn invalidate-secondary-all! [ids]
+(defn start-secondary-invalidation-all! [ids]
   (let [failures (ArrayList.)
         cache-types (disj (into (set (keys (methods start-secondary-invalidation!)))
-                                (concat (keys (methods invalidate-secondary!))
+                                 (concat (keys (methods invalidate-secondary!))
                                         (keys (methods end-secondary-invalidation!))))
                           :default)
-        started (into [] (keep #(start-invalidator failures ids %)) cache-types)]
-    (when (.isEmpty failures)
-      (run! #(run-invalidator! failures ids %) started))
-    (run! #(end-invalidator! failures ids %) started)
+        started (into [] (keep #(start-invalidator failures ids %)) cache-types)
+        completed (AtomicBoolean.)]
     (when-let [^Throwable failure (first failures)]
+      (run! #(end-invalidator! failures ids %) started)
       (run! #(.addSuppressed failure %) (next failures))
-      (throw failure))))
+      (throw failure))
+    (fn [invalidate?]
+      (when-not (.compareAndSet completed false true)
+        (throw (IllegalStateException. "Invalidation has already completed")))
+      (when invalidate?
+        (run! #(run-invalidator! failures ids %) started))
+      (run! #(end-invalidator! failures ids %) started)
+      (when-let [^Throwable failure (first failures)]
+        (run! #(.addSuppressed failure %) (next failures))
+        (throw failure)))))
+
+(defn invalidate-secondary-all! [ids]
+  ((start-secondary-invalidation-all! ids) true))
 
 (defmethod new-cache :memento.core/none [_] no-cache)
 
