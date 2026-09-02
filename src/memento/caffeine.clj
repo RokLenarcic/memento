@@ -119,11 +119,9 @@
 (defmethod b/start-secondary-invalidation! :memento.core/caffeine [_ sec-ids]
   (.startInvalidation SecondaryIndex/INSTANCE sec-ids))
 
-(defmethod b/invalidate-secondary! :memento.core/caffeine [_ _sec-ids ^InvalidationTimeline$Invalidation state]
-  (.invalidate SecondaryIndex/INSTANCE state)
-  state)
-
-(defmethod b/end-secondary-invalidation! :memento.core/caffeine [_ _sec-ids ^InvalidationTimeline$Invalidation state]
+(defmethod b/finalize-invalidation! :memento.core/caffeine [_ _sec-ids ^InvalidationTimeline$Invalidation state invalidate?]
+  (when invalidate?
+    (.invalidate SecondaryIndex/INSTANCE state))
   (.endInvalidation SecondaryIndex/INSTANCE state))
 
 (defn stats

@@ -5,8 +5,8 @@
 ## 3.0.0
 
 - Secondary-index invalidation is now implemented by cache backend methods via
-  the `start-secondary-invalidation!`, `invalidate-secondary!`, and
-  `end-secondary-invalidation!` lifecycle; mount tags are no longer required.
+  the `start-secondary-invalidation!` and `finalize-invalidation!` lifecycle;
+  mount tags are no longer required.
 - Added `memento.core/start-invalidation!` and `memento.core/with-invalidation` for keeping
   cache loads out of the interval around an underlying write.
 - Secondary IDs are arbitrary values. Added `with-sec-id` and `memo-clear-sec-id!`.

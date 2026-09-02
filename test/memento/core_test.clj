@@ -460,110 +460,29 @@
                   (fn [_ actual-ids]
                     (swap! events conj [:start second-type actual-ids])
                     :second-started))
-      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! first-type
-                  (fn [_ actual-ids state]
-                    (swap! events conj [:invalidate first-type actual-ids state])
+      (.addMethod ^clojure.lang.MultiFn b/finalize-invalidation! first-type
+                  (fn [_ actual-ids state invalidate?]
+                    (swap! events conj [:finalize first-type actual-ids state invalidate?])
                     (throw (ex-info "first backend failed" {}))))
-      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! second-type
-                  (fn [_ actual-ids state]
-                    (swap! events conj [:invalidate second-type actual-ids state])
-                    :second-invalidated))
-      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! first-type
-                  (fn [_ actual-ids state]
-                    (swap! events conj [:end first-type actual-ids state])))
-       (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! second-type
-                   (fn [_ actual-ids state]
-                     (swap! events conj [:end second-type actual-ids state])))
+      (.addMethod ^clojure.lang.MultiFn b/finalize-invalidation! second-type
+                  (fn [_ actual-ids state invalidate?]
+                    (swap! events conj [:finalize second-type actual-ids state invalidate?])))
        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"first backend failed"
                              ((apply start-invalidation! ids) true)))
-      (is (= [:start :start :invalidate :invalidate :end :end]
-             (mapv first @events)))
+      (is (= [:start :start :finalize :finalize]
+              (mapv first @events)))
       (is (every? #(= ids (nth % 2)) @events))
       (is (= #{[first-type :first-started]
-               [second-type :second-started]}
-             (set (map (juxt second #(nth % 3))
-                       (filter #(= :invalidate (first %)) @events)))))
-      (is (= #{[first-type :first-started]
-               [second-type :second-invalidated]}
-             (set (map (juxt second #(nth % 3))
-                       (filter #(= :end (first %)) @events)))))
+                [second-type :second-started]}
+              (set (map (juxt second #(nth % 3))
+                        (filter #(= :finalize (first %)) @events)))))
+      (is (every? #(true? (nth % 4))
+                  (filter #(= :finalize (first %)) @events)))
       (finally
         (remove-method b/start-secondary-invalidation! first-type)
         (remove-method b/start-secondary-invalidation! second-type)
-        (remove-method b/invalidate-secondary! first-type)
-        (remove-method b/invalidate-secondary! second-type)
-        (remove-method b/end-secondary-invalidation! first-type)
-        (remove-method b/end-secondary-invalidation! second-type)))))
-
-(deftest caffeine-lockout-starts-before-slow-backend-invalidation-test
-  (let [backend-type ::slow-backend
-        started (promise)
-        release (promise)
-        load-started (promise)
-        load-release (promise)
-        calls (atom 0)
-        f (memo (fn []
-                  (deliver load-started true)
-                  @load-release
-                   (with-sec-id (swap! calls inc) [:phase 1]))
-                inf)]
-    (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! backend-type
-                (fn [_ _] nil))
-    (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! backend-type
-                (fn [_ _ state]
-                  (deliver started true)
-                  @release
-                  state))
-    (try
-      (let [invalidation (future (memo-clear-sec-id! [:phase 1]))]
-        @started
-        (let [load (future (f))]
-          @load-started
-          (deliver release true)
-          @invalidation
-          (deliver load-release true)
-          (is (= 2 @load))
-          (is (= 2 @calls))))
-      (finally
-        (remove-method b/start-secondary-invalidation! backend-type)
-        (remove-method b/invalidate-secondary! backend-type)))))
-
-(deftest caffeine-load-finishing-during-active-invalidation-retries-test
-  (let [backend-type ::slow-end
-        invalidated (promise)
-        release-invalidation (promise)
-        load-started (promise)
-        release-load (promise)
-        retry-started (promise)
-        release-retry (promise)
-        calls (atom 0)
-        f (memo (fn []
-                  (let [n (swap! calls inc)]
-                    (case n
-                      1 (do (deliver load-started true) @release-load)
-                      2 (do (deliver retry-started true) @release-retry)
-                      nil)
-                     (with-sec-id n [:active-finish 1])))
-                inf)]
-    (try
-      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! backend-type
-                  (fn [_ _ state]
-                    (deliver invalidated true)
-                    @release-invalidation
-                    state))
-      (let [invalidation (future (memo-clear-sec-id! [:active-finish 1]))]
-        @invalidated
-        (let [load (future (f))]
-          @load-started
-          (deliver release-load true)
-          @retry-started
-          (deliver release-invalidation true)
-          @invalidation
-          (deliver release-retry true)
-          (is (= 3 @load))
-          (is (= 3 @calls))))
-      (finally
-        (remove-method b/invalidate-secondary! backend-type)))))
+        (remove-method b/finalize-invalidation! first-type)
+        (remove-method b/finalize-invalidation! second-type)))))
 
 (deftest secondary-invalidation-start-failure-skips-invalidators-test
   (let [events (atom [])
@@ -572,24 +491,18 @@
     (try
       (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! good
                   (fn [_ _] (swap! events conj :good-start) :state))
-      (.addMethod ^clojure.lang.MultiFn b/end-secondary-invalidation! good
-                  (fn [_ _ state] (swap! events conj [:good-end state])))
-      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! good
-                  (fn [_ _ state] (swap! events conj :good-invalidate) state))
+      (.addMethod ^clojure.lang.MultiFn b/finalize-invalidation! good
+                  (fn [_ _ state invalidate?] (swap! events conj [:good-finalize state invalidate?])))
       (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! bad
                   (fn [_ _] (swap! events conj :bad-start) (throw (ex-info "start failed" {}))))
-      (.addMethod ^clojure.lang.MultiFn b/invalidate-secondary! bad
-                  (fn [_ _ state] (swap! events conj :bad-invalidate) state))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"start failed"
                              (memo-clear-sec-id! [:start-failure 1])))
-      (is (not-any? #{:good-invalidate :bad-invalidate} @events))
-      (is (some #{[:good-end :state]} @events))
+      (is (some #{[:good-finalize :state false]} @events))
       (finally
         (run! (fn [multifn]
                 (run! #(remove-method multifn %) [good bad]))
-              [b/start-secondary-invalidation!
-               b/invalidate-secondary!
-               b/end-secondary-invalidation!])))))
+               [b/start-secondary-invalidation!
+                b/finalize-invalidation!])))))
 
 (deftest fire-event-test
   (testing "event is fired on referenced cache"

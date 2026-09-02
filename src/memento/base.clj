@@ -47,66 +47,48 @@
 
 (defmethod start-secondary-invalidation! :default [_ _] nil)
 
-(defmulti invalidate-secondary!
-  "Invalidate secondary identifiers for one cache backend type. Receives start state and
-   returns the state passed to end-secondary-invalidation!."
-  (fn [cache-type _ids _state] cache-type))
+(defmulti finalize-invalidation!
+  "Finalize a secondary-index invalidation for one cache backend type. Receives
+   start state and whether matching entries should be invalidated."
+  (fn [cache-type _ids _state _invalidate?] cache-type))
 
-(defmethod invalidate-secondary! :default [_ _ state] state)
-
-(defmulti end-secondary-invalidation!
-  "End a secondary-index invalidation for one cache backend type."
-  (fn [cache-type _ids _state] cache-type))
-
-(defmethod end-secondary-invalidation! :default [_ _ _] nil)
+(defmethod finalize-invalidation! :default [_ _ _ _] nil)
 
 (defn- record-failure! [^ArrayList failures ^Throwable failure]
   (.add failures failure))
 
 (defn- start-invalidator [^ArrayList failures sec-ids cache-type]
   (try
-    {:cache-type cache-type
-     :state (volatile! (start-secondary-invalidation! cache-type sec-ids))}
+     {:cache-type cache-type
+      :state (start-secondary-invalidation! cache-type sec-ids)}
     (catch Throwable t
       (record-failure! failures t)
       nil)))
 
-(defn- run-invalidator! [^ArrayList failures sec-ids {:keys [cache-type state]}]
+(defn- finalize-invalidator! [^ArrayList failures sec-ids {:keys [cache-type state]} invalidate?]
   (try
-    (vreset! state (invalidate-secondary! cache-type sec-ids @state))
-    (catch Throwable t
-      (record-failure! failures t))))
-
-(defn- end-invalidator! [^ArrayList failures sec-ids {:keys [cache-type state]}]
-  (try
-    (end-secondary-invalidation! cache-type sec-ids @state)
+    (finalize-invalidation! cache-type sec-ids state invalidate?)
     (catch Throwable t
       (record-failure! failures t))))
 
 (defn start-secondary-invalidation-all! [sec-ids]
   (let [failures (ArrayList.)
         cache-types (disj (into (set (keys (methods start-secondary-invalidation!)))
-                                 (concat (keys (methods invalidate-secondary!))
-                                        (keys (methods end-secondary-invalidation!))))
-                          :default)
+                                  (keys (methods finalize-invalidation!)))
+                           :default)
          started (into [] (keep #(start-invalidator failures sec-ids %)) cache-types)
         completed (AtomicBoolean.)]
     (when-let [^Throwable failure (first failures)]
-       (run! #(end-invalidator! failures sec-ids %) started)
+       (run! #(finalize-invalidator! failures sec-ids % false) started)
       (run! #(.addSuppressed failure %) (next failures))
       (throw failure))
     (fn [invalidate?]
       (when-not (.compareAndSet completed false true)
         (throw (IllegalStateException. "Invalidation has already completed")))
-      (when invalidate?
-         (run! #(run-invalidator! failures sec-ids %) started))
-       (run! #(end-invalidator! failures sec-ids %) started)
+       (run! #(finalize-invalidator! failures sec-ids % invalidate?) started)
       (when-let [^Throwable failure (first failures)]
         (run! #(.addSuppressed failure %) (next failures))
         (throw failure)))))
-
-(defn invalidate-secondary-all! [sec-ids]
-  ((start-secondary-invalidation-all! sec-ids) true))
 
 (defmethod new-cache :memento.core/none [_] no-cache)
 

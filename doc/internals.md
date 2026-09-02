@@ -152,9 +152,8 @@ Secondary-index invalidation is more complex because:
 #### Invalidation Sequence
 
 1. Invoke every backend's lightweight `start-secondary-invalidation!` method.
-2. Invoke every backend's `invalidate-secondary!` method, passing start state.
-3. Invoke every backend's `end-secondary-invalidation!` method, passing the state
-   returned by invalidation (or start state when invalidation failed).
+2. Invoke every backend's `finalize-invalidation!` method, passing start state and
+   whether matching entries should be invalidated.
 
 Secondary-index invalidation is backend-owned and does not enumerate mount points. The
 Caffeine backend uses one JVM-wide index containing weak cache/key references and local
@@ -163,7 +162,7 @@ coordination. Starting
 all backends before running any potentially slow invalidator gives their lockout windows the
 widest practical overlap; cross-backend atomicity is not implied.
 
-#### Load Sequence (with tag checking)
+#### Load Sequence (with secondary-ID checking)
 
 1. Publish a `SpecialPromise` for the key. If this thread published it, retain the current
     secondary-invalidation timeline node immediately before invoking the cached function.
@@ -202,7 +201,7 @@ meaningful load execution through the timeline and promise invalidation, but doe
 close this final handoff race. Closing it would require successful joiners to re-read the
 map while still not providing an absolute guarantee for the loader itself.
 
-`memento.core/start-invalidation!` orchestrates the three backend lifecycle phases and returns a
+`memento.core/start-invalidation!` orchestrates the two backend lifecycle phases and returns a
 single-use completion function. `memo-clear-sec-id!` starts and immediately completes that lifecycle;
 `with-invalidation` completes it after a successful body or ends it without invalidating when the
 body throws. Core does not create or interpret the Caffeine timeline state.
@@ -374,15 +373,10 @@ Register with multimethod:
   ;; Establish a lightweight lockout and return backend-specific state.
   ...)
 
-(defmethod memento.base/invalidate-secondary! :my-cache-type
-   [_ sec-ids state]
-  ;; Invalidate active storage domains and return state for the end phase.
-  state)
-
-(defmethod memento.base/end-secondary-invalidation! :my-cache-type
-   [_ sec-ids state]
-  ;; Release the backend lockout.
-  nil)
+(defmethod memento.base/finalize-invalidation! :my-cache-type
+   [_ sec-ids state invalidate?]
+   ;; Invalidate active storage domains when invalidate? is true, then release the lockout.
+   nil)
 ```
 
 Use:
