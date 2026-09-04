@@ -8,12 +8,16 @@
   the `start-secondary-invalidation!` and `finalize-invalidation!` lifecycle;
   mount tags are no longer required.
 - Added `memento.core/start-invalidation!` and `memento.core/with-invalidation` for keeping
-  cache loads out of the interval around an underlying write.
+  cache loads out of the interval around an underlying write. Concurrent callers block until
+  the lockout ends, with a one-minute diagnostic timeout for leaked or self-owned lockouts.
 - Secondary IDs are arbitrary values. Added `with-sec-id` and `memo-clear-sec-id!`.
+- Added `mc/lite`, a Caffeine cache without secondary-index support.
 - Core no longer owns a universal invalidation epoch. Each cache backend owns its
   secondary-index storage domains and concurrency model.
 - **Breaking change for cache implementors:** removed `invalidateIds` from
   `ICache` and removed `memento.base/invalidate-ids`.
+- Removed APIs deprecated through 2.1: `memento.guava`, `memento.guava.config`,
+  `mc/guava`, and the no-op `mc/concurrency` setting.
 
 ## 2.1.74
 
@@ -75,7 +79,7 @@
 - important fix for secondary indexes clearing
 - reduced memory use
 - improving performance on evictions when an eviction listener isn't used
-- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of secondary IDs; implementations are expected to coordinate in-flight loads with secondary-ID invalidations.
+- *BREAKING CHANGE FOR IMPLEMENTATIONS* `invalidateId` is now `invalidateIds` and takes an iterable of tag ids; implementations are expected to coordinate in-flight loads with tag invalidations.
 
 ## 1.1.54
 

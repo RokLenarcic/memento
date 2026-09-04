@@ -77,7 +77,8 @@ public class SpecialPromise {
     boolean deliver(Object r, long latestInvalidation) {
         InvalidationTimeline.Operation start = timelineStart;
         if (epoch <= latestInvalidation
-                || (start != null && r instanceof EntryMeta && SecondaryIndex.INSTANCE.isInvalid(start, (EntryMeta) r))) {
+                || (start != null && r instanceof EntryMeta
+                && SecondaryIndex.INSTANCE.isInvalid(start, (EntryMeta) r))) {
             RESULT.compareAndSet(this, null, EntryMeta.absent);
             return false;
         }
@@ -156,10 +157,6 @@ public class SpecialPromise {
 
     void releaseTimeline() {
         timelineStart = null;
-    }
-
-    public boolean hasTimeline() {
-        return timelineStart != null;
     }
 
     private static class AltResult {

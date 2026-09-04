@@ -179,6 +179,28 @@ widest practical overlap; cross-backend atomicity is not implied.
 6. Callers already waiting on a successfully published promise receive its result
     directly; later callers read the `CacheEntry` from the map.
 
+#### Waiting Out a Lockout
+
+Steps 4 and 5 above, and the cache-hit path, retry when the result's secondary IDs lost to an
+invalidation. A lockout is held open for the whole duration of the invalidating caller's write, so
+an immediate retry would lose again — and re-run the cached function — for that entire window.
+Instead, a retry that was rejected by a secondary-ID lockout calls
+`InvalidationTimeline.awaitQuiescent` on the offending IDs and parks until the last overlapping
+lockout on any of them ends.
+
+`awaitQuiescent` waits on the same monitor that serializes timeline appends, and end-of-invalidation
+appends signal it. The wait uses a one-minute monotonic deadline. If the condition is still active
+at that point, it throws `IllegalStateException` identifying the IDs and suggesting a leaked
+completion or self-lockout. The long timeout is diagnostic rather than a normal duration target:
+valid invalidations should finish quickly, while a production mistake does not produce rapid
+retry/failure churn. The deadline is measured across the entire wait and is not reset by
+spurious wakeups or notifications for unrelated IDs. Waiters are also interruptible.
+
+A cache hit that is locked out parks *without* removing the entry. The lockout may still end with
+`finish!(false)`, in which case the waiter re-reads and serves the untouched entry. No owner-thread
+state is maintained, so timeline validation remains lock-free. A same-thread self-lockout is
+reported by the one-minute wait timeout rather than detected in the publication path.
+
 The timeline is a forward-linked chain with serialized transition appends and lock-free reads.
 Each transition node contains the count of active invalidations per secondary ID after that transition.
 A load's start node summarizes all earlier history, while start nodes appended through the finish
@@ -227,6 +249,11 @@ When a secondary-ID invalidation finds a `SpecialPromise` through an existing se
 - This allows long-running loads to abort early
 - The load will be retried after invalidation completes
 
+Secondary-index pointers are removed lazily. If a stale pointer remains for a key that has since
+started a different load, the promise has no write epoch or result secondary IDs yet, so the
+invalidation conservatively interrupts that load. This can cause one unnecessary retry, but it
+cannot return stale data or remove a later published entry.
+
 For a first load whose result-derived secondary IDs are not known yet, the timeline detects the
 overlap when the result completes; such a load cannot be interrupted through the index.
 
@@ -242,6 +269,10 @@ InvalidationTimeline.Invalidation invalidation = timeline.startInvalidation(ids)
 // invalidate indexed storage
 timeline.endInvalidation(invalidation);
 boolean retry = timeline.invalidated(operation, resultIds);
+if (retry) {
+    // Park until the lockout closes rather than spinning through it.
+    timeline.awaitQuiescent(resultIds);
+}
 ```
 
 An operation handle is the timeline node itself, so capturing it does not allocate. Holding

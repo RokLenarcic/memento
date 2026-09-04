@@ -85,10 +85,6 @@
   "Function bind setting, a map of cache keys to values that will be preloaded when cache is bound."
   :memento.core/seed)
 
-(def ^:deprecated guava
-  "DEPRECATED: Cache setting value, now points to caffeine implementation"
-  :memento.core/caffeine)
-
 (def caffeine
   "Cache setting value, type name of Caffeine cache implementation"
   :memento.core/caffeine)
@@ -100,10 +96,6 @@
 (def none
   "Cache setting value, type name of noop cache implementation"
   :memento.core/none)
-
-(def ^:deprecated concurrency
-  "DEPRECATED: it does nothing in Caffeine implementation"
-  :memento.core/concurrency)
 
 (def initial-capacity
   "Cache setting, supported by: caffeine, an int.

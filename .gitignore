@@ -7,3 +7,5 @@
 target/
 .lsp/.cache
 .clj-kondo/.cache
+/opencode.json
+/.opencode/

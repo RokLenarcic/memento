@@ -202,12 +202,13 @@ successful write to clear matching entries, or `false` after a failed write to o
 
 ```clojure
 (let [finish! (m/start-invalidation! [:user user-id])]
-  (try
-    (db/update-user! user-id data)
+  (let [result (try
+                 (db/update-user! user-id data)
+                 (catch Throwable t
+                   (finish! false)
+                   (throw t)))]
     (finish! true)
-    (catch Throwable t
-      (finish! false)
-      (throw t))))
+    result))
 ```
 
 `with-invalidation` provides the same lifecycle and ends the lockout without clearing if its body
@@ -217,6 +218,63 @@ throws:
 (m/with-invalidation [[:user user-id]]
   (db/update-user! user-id data))
 ```
+
+#### What the Lockout Does to Concurrent Callers
+
+While the lockout is open, a call to a memoized function whose result carries a locked-out
+secondary ID **blocks** until the lockout ends, and then loads fresh data. If the entry was
+already cached, the waiter does not even run your function — it waits and then re-reads, so
+ending the lockout with `false` serves the existing entry untouched. The one-minute timeout is
+only a safeguard for callers that remain blocked; it does not limit how long the invalidating
+write may take when callers are not waiting on it.
+
+This is what makes the lockout useful: callers never observe a value computed across your write.
+It also means two things you must respect.
+
+**Always end the lockout.** If the function returned by `start-invalidation!` is never called,
+every affected secondary ID stays locked out. Callers wait for up to one minute and then receive
+an `IllegalStateException` identifying the affected IDs and likely leaked completion. Prefer
+`with-invalidation`. If you need manual control, call `finish!(false)` only when the write fails;
+once either completion call starts, the function is consumed even if backend finalization throws:
+
+```clojure
+;; Prefer this
+(m/with-invalidation [[:user user-id]]
+  (db/update-user! user-id data))
+
+;; If you need manual control, guarantee exactly one call
+(let [finish! (m/start-invalidation! [:user user-id])]
+  (let [result (try
+                 (db/update-user! user-id data)
+                 (catch Throwable t
+                   (finish! false)
+                   (throw t)))]
+    (finish! true)
+    result))
+```
+
+**Do not read through the lockout from inside it.** The thread holding the lockout open must not
+call a memoized function that returns one of the locked-out secondary IDs. The call waits on the
+lockout that its own thread cannot finish, then throws a diagnostic `IllegalStateException` after
+one minute:
+
+```clojure
+;; TIMES OUT: get-user returns [:user user-id], which this block has locked out
+(m/with-invalidation [[:user user-id]]
+  (db/update-user! user-id data)
+  (get-user user-id))
+
+;; Fine: read after the lockout closes
+(m/with-invalidation [[:user user-id]]
+  (db/update-user! user-id data))
+(get-user user-id)
+```
+
+Keep the lockout body as short as the write itself. Waiters are interruptible, so a thread stuck
+on a leaked or self-inflicted lockout can be released with `Thread/interrupt`, which surfaces as
+an `InterruptedException` from the memoized call. The timeout deadline begins when the waiter
+starts waiting and is not reset by unrelated or spurious wakeups. This prevents repeated
+invalidation activity from hiding a leaked completion indefinitely.
 
 ## Manually Adding Cache Entries
 
@@ -324,7 +382,7 @@ If multiple threads request the same uncached key simultaneously, only one actua
 
 ### Invalidation During Load
 
-If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when an invalidation finds its `SpecialPromise` through an existing index entry; first loads with result-derived secondary IDs are instead detected by timeline validation when they complete. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
+If a key is invalidated while being loaded, the load is retried to ensure fresh data. The loading thread is interrupted when an invalidation finds its `SpecialPromise` through an existing index entry; first loads with result-derived secondary IDs are instead detected by timeline validation when they complete. A load that is rejected because its secondary IDs are still locked out waits for the lockout to end before retrying, so a long invalidation window costs one computation rather than a retry storm. There is a narrow boundary after a completed load is published: an invalidation may remove the published cache entry while the loader or callers already waiting on that load still return its computed value. Subsequent calls miss and load fresh data.
 
 ### The Call Tree Problem
 

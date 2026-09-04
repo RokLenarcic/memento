@@ -19,12 +19,26 @@ Version 3.0 removes the deprecated tag-pair invalidation API. Use secondary IDs 
    (m/start-invalidation! [:user user-id] [:order order-id])
    ```
 
+2. **Previously deprecated Guava aliases removed**:
+   - Replace `memento.guava` with `memento.caffeine`.
+   - Replace `memento.guava.config` with `memento.caffeine.config`.
+   - Replace `mc/guava` or `:memento.core/guava` with `mc/caffeine`.
+
+3. **No-op `mc/concurrency` setting removed**: delete it from cache configuration maps.
+
 Prefer `with-invalidation` when the invalidation surrounds a write:
 
 ```clojure
 (m/with-invalidation [[:user user-id]]
   (db/update-user! user-id changes))
 ```
+
+Concurrent calls whose results carry a locked-out secondary ID block until the write finishes,
+then load fresh data. Do not call such a memoized function from inside its own
+`with-invalidation` body; after one minute Memento throws `IllegalStateException` describing the
+likely self-lockout.
+If you use `start-invalidation!` directly, always call the returned completion function, including
+on failure. Otherwise affected callers time out after one minute with an explanatory exception.
 
 ## Migrating to Version 2.0
 
@@ -74,4 +88,5 @@ Version 1.0 switched from Guava Cache to Caffeine as the underlying cache implem
 
 ### Backward Compatibility
 
-The deprecated Guava namespaces and type keyword still work but will be removed in a future version. They internally redirect to the Caffeine implementation.
+The deprecated Guava namespaces and aliases remained available through version 2.1. Version 3.0
+removes them; see the version 3.0 migration steps above.

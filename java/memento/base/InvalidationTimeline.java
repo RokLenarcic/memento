@@ -6,6 +6,7 @@ import clojure.lang.PersistentHashMap;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * History for coordinating operations with invalidations whose identifiers are
@@ -36,10 +37,26 @@ public final class InvalidationTimeline {
         }
     }
 
+    private static final long DEFAULT_QUIESCENCE_TIMEOUT_NANOS = TimeUnit.MINUTES.toNanos(1);
+
     private final Object appendLock = new Object();
+    private final long quiescenceTimeoutNanos;
     private volatile Node tail;
 
     public InvalidationTimeline() {
+        this.quiescenceTimeoutNanos = DEFAULT_QUIESCENCE_TIMEOUT_NANOS;
+        tail = new Node(this, PersistentHashMap.EMPTY, Collections.emptySet());
+    }
+
+    /** Create a timeline with a custom wait timeout, primarily for backend use and testing. */
+    public InvalidationTimeline(long quiescenceTimeout, TimeUnit unit) {
+        if (quiescenceTimeout <= 0) {
+            throw new IllegalArgumentException("Quiescence timeout must be positive");
+        }
+        this.quiescenceTimeoutNanos = unit.toNanos(quiescenceTimeout);
+        if (quiescenceTimeoutNanos <= 0) {
+            throw new IllegalArgumentException("Quiescence timeout is too small");
+        }
         tail = new Node(this, PersistentHashMap.EMPTY, Collections.emptySet());
     }
 
@@ -84,6 +101,40 @@ public final class InvalidationTimeline {
         return ids != null && !ids.isEmpty() && hasActiveInvalidation(tail, ids);
     }
 
+    /**
+     * Block until no supplied identifier is being invalidated, then return.
+     *
+     * <p>Callers retrying an operation that lost to an invalidation use this instead of spinning:
+     * a lockout is held open for the duration of the caller's underlying write, so an immediate
+     * retry would re-lose for as long as that write takes.</p>
+     *
+     * <p>Waiting fails after one minute by default so a leaked or self-owned lockout produces
+     * a diagnosable exception instead of an indefinite hang. Waiters are also interruptible.</p>
+     *
+     * @throws InterruptedException if the waiting thread is interrupted
+     */
+    public void awaitQuiescent(Set<?> ids) throws InterruptedException {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        long startedAt = System.nanoTime();
+        synchronized (appendLock) {
+            while (hasActiveInvalidation(tail, ids)) {
+                long remaining = quiescenceTimeoutNanos - (System.nanoTime() - startedAt);
+                if (remaining <= 0) {
+                    throw new IllegalStateException(
+                            "Secondary-ID invalidation did not complete within "
+                            + TimeUnit.NANOSECONDS.toMillis(quiescenceTimeoutNanos)
+                            + " milliseconds; the completion may be leaked or waiting on its own lockout: "
+                            + ids);
+                }
+                long millis = TimeUnit.NANOSECONDS.toMillis(remaining);
+                int nanos = (int) (remaining - TimeUnit.MILLISECONDS.toNanos(millis));
+                appendLock.wait(millis, nanos);
+            }
+        }
+    }
+
     private boolean hasActiveInvalidation(Node snapshot, Set<?> ids) {
         for (Object id : ids) {
             if (snapshot.activeIds.containsKey(id)) {
@@ -118,6 +169,10 @@ public final class InvalidationTimeline {
             predecessor.next = node;
             // The volatile tail write publishes the node and its link to lock-free readers.
             tail = node;
+            if (!starting) {
+                // A lockout was released; let awaitQuiescent waiters re-test.
+                appendLock.notifyAll();
+            }
             return node;
         }
     }

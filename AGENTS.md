@@ -28,8 +28,6 @@ memento/
 │   ├── mount.clj          # MountPoint implementations (151 lines)
 │   ├── caffeine.clj       # Caffeine cache implementation (145 lines)
 │   ├── caffeine/config.clj # Caffeine-specific config keys
-│   ├── guava.clj          # DEPRECATED - redirects to caffeine
-│   ├── guava/config.clj   # DEPRECATED
 │   ├── multi.clj          # Tiered cache implementations (47 lines)
 │   └── ns_scan.clj        # Namespace scanning utility (47 lines)
 │
@@ -261,28 +259,18 @@ Test coverage includes:
 ## Build
 
 ```bash
-clj -T:build jar      # Build JAR
+clj -T:build ci       # Run tests and build JAR
 clj -T:build deploy   # Deploy to Clojars
 ```
 
-## Deprecated Code
-
-- `memento.guava` namespace - redirects to caffeine
-- `memento.guava.config` namespace
-- `:memento.core/guava` cache type
-
-These exist for backward compatibility from version 0.x migration.
-
 ## Potential Simplification Areas
 
-1. **Guava namespaces**: Can be removed entirely if backward compatibility not needed
+1. **Java code**: Some simpler classes might be convertible to Clojure records/protocols if stack depth isn't critical
 
-2. **Java code**: Some simpler classes might be convertible to Clojure records/protocols if stack depth isn't critical
+2. **Configuration**: Many configuration keys - could potentially reduce or group
 
-3. **Configuration**: Many configuration keys - could potentially reduce or group
+3. **Multi-cache types**: Three similar implementations (tiered/consulting/daisy) with subtle differences
 
-4. **Multi-cache types**: Three similar implementations (tiered/consulting/daisy) with subtle differences
+4. **Mount point types**: Tagged vs Untagged have significant overlap
 
-5. **Mount point types**: Tagged vs Untagged have significant overlap
-
-6. **Test organization**: Tests are comprehensive but could be better organized by feature
+5. **Test organization**: Tests are comprehensive but could be better organized by feature

@@ -30,7 +30,11 @@ public class CaffeineCache_ {
 
     private boolean beingInvalidated(Segment segment, CacheEntry entry) {
         return entry.getWriteEpoch() <= lastInvalidation(segment)
-               || (secondaryIndex && SecondaryIndex.INSTANCE.hasActiveInvalidation(entry.getSecIds()));
+               || lockedOut(entry.getSecIds());
+    }
+
+    private boolean lockedOut(IPersistentSet secIds) {
+        return secondaryIndex && SecondaryIndex.INSTANCE.hasActiveInvalidation(secIds);
     }
 
     public CaffeineCache_(Caffeine<Object, Object> builder, final IFn keyFn, final IFn retFn, final IFn retExFn) {
@@ -50,7 +54,15 @@ public class CaffeineCache_ {
 
     public Object cached(Segment segment, ISeq args) throws Throwable {
         CacheKey key = keyFn.apply(segment, args);
+        IPersistentSet lockedOutIds = null;
         do {
+            if (lockedOutIds != null) {
+                // A secondary-ID lockout stays open for as long as the invalidating caller's
+                // underlying write takes. Retrying immediately would just lose again for that
+                // whole window, re-running the cached function every time, so wait it out.
+                SecondaryIndex.INSTANCE.awaitQuiescent(lockedOutIds);
+                lockedOutIds = null;
+            }
             SpecialPromise promise = new SpecialPromise(InvalidationClock.current());
             Object cached = delegate.asMap().putIfAbsent(key, promise);
             if (cached == null) {
@@ -73,6 +85,7 @@ public class CaffeineCache_ {
                                 return EntryMeta.unwrap(result);
                             } else {
                                 promise.reject();
+                                lockedOutIds = ids;
                                 continue;
                             }
                         }
@@ -86,6 +99,7 @@ public class CaffeineCache_ {
                                 SecondaryIndex.INSTANCE.removeKeys(this, key, entry);
                                 delegate.asMap().remove(key, promise);
                                 promise.reject();
+                                lockedOutIds = ids;
                                 continue;
                             }
                         }
@@ -114,7 +128,6 @@ public class CaffeineCache_ {
                     promise.releaseResult();
                 }
             } else {
-                promise.releaseTimeline();
                 // join into ongoing load
                 if (cached instanceof SpecialPromise) {
                     SpecialPromise sp = (SpecialPromise) cached;
@@ -125,8 +138,14 @@ public class CaffeineCache_ {
                     }
                 } else {
                     CacheEntry entry = (CacheEntry) cached;
-                    if (beingInvalidated(segment, entry)) {
+                    if (entry.getWriteEpoch() <= lastInvalidation(segment)) {
                         delegate.asMap().remove(key, entry);
+                        continue;
+                    }
+                    if (lockedOut(entry.getSecIds())) {
+                        // Leave the entry in place: the lockout may still end without
+                        // invalidating. Wait it out and re-read rather than reloading blind.
+                        lockedOutIds = entry.getSecIds();
                         continue;
                     }
                     return CacheEntry.unwrap(entry);
@@ -183,6 +202,16 @@ public class CaffeineCache_ {
         delegate.invalidateAll();
     }
 
+    /**
+     * Drop the mapping a secondary-index entry points at.
+     *
+     * <p>A published {@link CacheEntry} is only removed when its write epoch matches the one
+     * recorded in the index, so a stale index pointer cannot evict a replacement value.
+     * An in-flight {@link SpecialPromise} carries no epoch yet and its result's secondary IDs
+     * are not known, so it is invalidated unconditionally. A stale pointer can therefore
+     * cancel an unrelated load on the same key; that load simply retries, so the cost is a
+     * repeated computation rather than a stale read.</p>
+     */
     public void invalidateIndexed(CacheKey key, long indexedEpoch) {
         delegate.asMap().computeIfPresent(key, (ignored, value) -> {
             if (value instanceof SpecialPromise) {

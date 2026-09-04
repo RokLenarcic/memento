@@ -264,7 +264,7 @@ Secondary IDs decouple them completely. They are arbitrary values; a vector such
     (db/merge-users! from-id to-id)))
 ```
 
-Now cached and modifying functions only need to agree on a secondary-ID scheme. `with-invalidation` starts the lockout before the write and clears matching entries when it succeeds, preventing an overlapping load from publishing stale data.
+Now cached and modifying functions only need to agree on a secondary-ID scheme. `with-invalidation` starts the lockout before the write and clears matching entries when it succeeds, preventing an overlapping load from publishing stale data. Concurrent calls for locked-out IDs wait until the write finishes. A memoized call for the same ID from inside the block is a programming error; after one minute it throws an `IllegalStateException` describing the likely self-lockout.
 
 A cached value can have **multiple secondary IDs** - useful for aggregated data like dashboards. See the [Invalidation Guide](doc/invalidation.md) for details.
 

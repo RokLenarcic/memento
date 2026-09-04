@@ -12,7 +12,6 @@ import java.lang.ref.WeakReference;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BooleanSupplier;
 
 /** JVM-wide secondary index for Caffeine cache instances. */
 public final class SecondaryIndex {
@@ -76,6 +75,15 @@ public final class SecondaryIndex {
 
     public boolean hasActiveInvalidation(IPersistentSet ids) {
         return timeline.hasActiveInvalidation((Set<?>) ids);
+    }
+
+    /**
+     * Block until no supplied secondary ID is being invalidated.
+     *
+     * @throws InterruptedException if the waiting thread is interrupted
+     */
+    void awaitQuiescent(IPersistentSet ids) throws InterruptedException {
+        timeline.awaitQuiescent((Set<?>) ids);
     }
 
     void removeKeys(CaffeineCache_ cache, CacheKey key, CacheEntry entry) {

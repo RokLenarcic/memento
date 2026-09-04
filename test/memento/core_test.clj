@@ -433,6 +433,52 @@
       (is (thrown-with-msg? IllegalStateException #"already completed"
                             (finish! true))))))
 
+(deftest open-invalidation-window-does-not-spin-test
+  (testing "a cold load locked out by an open window waits instead of retrying"
+    (let [calls (atom 0)
+          f (m/memo (fn [x] (m/with-sec-id (swap! calls inc) [:window x])) inf)
+          finish! (m/start-invalidation! [:window 1])
+          caller (future (f 1))]
+      ;; The window is held open; the caller must park rather than recompute in a loop.
+      (is (= :timeout (deref caller 500 :timeout)))
+      (is (= 1 @calls) "the cached function is invoked at most once while locked out")
+      (finish! true)
+      (is (= 2 (deref caller 5000 :timeout)) "caller gets a value loaded after the window")
+      (is (= 2 @calls))))
+  (testing "a cache hit locked out by an open window waits without reloading"
+    (let [calls (atom 0)
+          f (m/memo (fn [x] (m/with-sec-id (swap! calls inc) [:window-hit x])) inf)]
+      (is (= 1 (f 1)))
+      (let [finish! (m/start-invalidation! [:window-hit 1])
+            caller (future (f 1))]
+        (is (= :timeout (deref caller 500 :timeout)))
+        (is (= 1 @calls) "a published entry means the waiter never starts a load")
+        (finish! true)
+        (is (= 2 (deref caller 5000 :timeout)))
+        (is (= 2 @calls)))))
+  (testing "ending a window without invalidating preserves the entry"
+    (let [calls (atom 0)
+          f (m/memo (fn [x] (m/with-sec-id (swap! calls inc) [:window-keep x])) inf)]
+      (is (= 1 (f 1)))
+      (let [finish! (m/start-invalidation! [:window-keep 1])
+            caller (future (f 1))]
+        (is (= :timeout (deref caller 500 :timeout)))
+        (finish! false)
+        (is (= 1 (deref caller 5000 :timeout)))
+        (is (= 1 @calls)))))
+  (testing "an unrelated secondary ID is not locked out"
+    (let [calls (atom 0)
+          f (m/memo (fn [x] (m/with-sec-id (swap! calls inc) [:window-other x])) inf)
+          finish! (m/start-invalidation! [:window-other 1])]
+      (is (= 1 (deref (future (f 2)) 5000 :timeout)))
+      (is (= 1 @calls))
+      (finish! true)))
+  (testing "a load whose result carries no secondary IDs is never locked out"
+    (let [f (m/memo (fn [_] :plain) inf)
+          finish! (m/start-invalidation! [:window-plain 1])]
+      (is (= :plain (deref (future (f 1)) 5000 :timeout)))
+      (finish! true))))
+
 (deftest with-invalidation-test
   (let [cache (create inf)
         f (m/bind (fn [value] (m/with-sec-id value [:with-invalidation value])) {} cache)]
@@ -503,6 +549,28 @@
                 (run! #(remove-method multifn %) [good bad]))
                [b/start-secondary-invalidation!
                 b/finalize-invalidation!])))))
+
+(deftest repeated-invalidation-failure-instance-test
+  (let [failure (ex-info "shared failure" {})
+        first-type ::shared-failure-first
+        second-type ::shared-failure-second]
+    (try
+      (doseq [cache-type [first-type second-type]]
+        (.addMethod ^clojure.lang.MultiFn b/start-secondary-invalidation! cache-type
+                    (fn [_ _] :started))
+        (.addMethod ^clojure.lang.MultiFn b/finalize-invalidation! cache-type
+                    (fn [_ _ _ _] (throw failure))))
+      (is (identical? failure
+                      (try
+                        ((start-invalidation! :shared-failure) true)
+                        (catch Throwable t t))))
+      (is (empty? (.getSuppressed failure))
+          "the same Throwable instance cannot suppress itself")
+      (finally
+        (run! (fn [multifn]
+                (run! #(remove-method multifn %) [first-type second-type]))
+              [b/start-secondary-invalidation!
+               b/finalize-invalidation!])))))
 
 (deftest fire-event-test
   (testing "event is fired on referenced cache"
@@ -661,7 +729,7 @@
       (reset! release? true)
       (is (= 2 @load))
       (is (= {nil 2} (as-map c)))))
-  (testing "direct invalidation releases the rejected load's timeline"
+  (testing "direct invalidation rejects and retries an active load"
     (let [started (promise)
           release? (atom false)
           calls (atom 0)
@@ -675,15 +743,11 @@
                     inf)
           load (future (c))]
       @started
-      (let [promise (first (vals (.asMap (:caffeine-cache (m/active-cache c)))))]
-        (is (instance? memento.caffeine.SpecialPromise promise))
-        (is (.hasTimeline ^memento.caffeine.SpecialPromise promise))
-        (m/memo-clear! c)
-        (is (not (.hasTimeline ^memento.caffeine.SpecialPromise promise))))
+      (m/memo-clear! c)
       (reset! release? true)
       (is (= 2 @load))
       (is (= 2 @calls))))
-  (testing "secondary invalidation releases the rejected load's timeline"
+  (testing "secondary invalidation rejects and retries an active load"
     (let [started (promise)
           release? (atom false)
           calls (atom 0)
@@ -700,10 +764,7 @@
       (m/memo-clear! c)
       (let [load (future (c))]
         @started
-        (let [promise (first (vals (.asMap (:caffeine-cache (m/active-cache c)))))]
-          (is (.hasTimeline ^memento.caffeine.SpecialPromise promise))
-          (m/memo-clear-sec-id! [:timeline-release 1])
-          (is (not (.hasTimeline ^memento.caffeine.SpecialPromise promise))))
+        (m/memo-clear-sec-id! [:timeline-release 1])
         (reset! release? true)
         (is (= 3 @load))
         (is (= 3 @calls)))))

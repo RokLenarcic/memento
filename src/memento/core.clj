@@ -168,12 +168,16 @@
     (.handleEvent ^IMountPoint f-or-tag evt)
     (->> (mounts-by-tag f-or-tag)
          (eduction (map #(.handleEvent ^IMountPoint % evt)))
-          dorun)))
+         dorun)))
 
 (declare start-invalidation!)
 
 (defn memo-clear-sec-id!
-  "Invalidate all entries indexed by sec-id. Returns nil."
+  "Invalidate all entries indexed by sec-id. Returns nil.
+
+   This opens and immediately closes an invalidation window. When the invalidation
+   accompanies a write to the underlying data, prefer with-invalidation, which keeps
+   the window open for the duration of the write."
   [sec-id]
   ((start-invalidation! sec-id) true))
 
@@ -182,7 +186,20 @@
 
    Returns a single-use function accepting a boolean. Call it with true after the
    underlying change succeeds to invalidate matching entries and end the lockout;
-   call it with false to end the lockout without invalidating."
+   call it with false to end the lockout without invalidating.
+
+   While the lockout is open, a call to a memoized function whose result carries a
+   locked-out secondary ID blocks until the lockout ends, then loads fresh data.
+   Two consequences follow:
+
+   - You MUST call the returned function. If you do not, every affected secondary ID
+     stays locked out and callers wait for up to one minute before an
+     IllegalStateException explains the likely leaked completion. Use with-invalidation,
+     which completes the lifecycle for you.
+   - Do not call a memoized function that returns one of these secondary IDs from the
+     thread holding the lockout open. It cannot complete until that thread ends the
+     invalidation, so the call times out after one minute with an IllegalStateException.
+     Waiters are interruptible."
   [& sec-ids]
   (base/start-secondary-invalidation-all! sec-ids))
 
@@ -190,7 +207,15 @@
   "Run body while matching secondary IDs are locked out.
 
    Invalidates matching entries after body returns normally. If body throws, ends
-   the lockout without invalidating and rethrows the original exception."
+   the lockout without invalidating and rethrows the original exception.
+
+   Callers of memoized functions whose results carry these secondary IDs block until
+   body completes, then load fresh data. Body itself must therefore not call such a
+   memoized function; the self-lockout times out after one minute with an
+   IllegalStateException. See start-invalidation!.
+
+     (m/with-invalidation [[:user user-id]]
+       (db/update-user! user-id changes))"
   [sec-ids & body]
   `(let [finish# (apply start-invalidation! ~sec-ids)]
      (let [result# (try

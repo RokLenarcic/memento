@@ -1,8 +1,0 @@
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "codescene": {
-      "enabled": false,
-    },
-  }
-}

@@ -57,10 +57,23 @@
 (defn- record-failure! [^ArrayList failures ^Throwable failure]
   (.add failures failure))
 
+(defn- throw-failures!
+  "Throw the first recorded failure with the rest attached as suppressed exceptions.
+   Returns nil when nothing failed."
+  [^ArrayList failures]
+  (when-let [^Throwable failure (first failures)]
+    (run! (fn [^Throwable other]
+            ;; addSuppressed rejects self-suppression, and a backend may well
+            ;; propagate the same instance twice.
+            (when-not (identical? failure other)
+              (.addSuppressed failure other)))
+          (rest failures))
+    (throw failure)))
+
 (defn- start-invalidator [^ArrayList failures sec-ids cache-type]
   (try
-     {:cache-type cache-type
-      :state (start-secondary-invalidation! cache-type sec-ids)}
+    {:cache-type cache-type
+     :state (start-secondary-invalidation! cache-type sec-ids)}
     (catch Throwable t
       (record-failure! failures t)
       nil)))
@@ -71,24 +84,28 @@
     (catch Throwable t
       (record-failure! failures t))))
 
-(defn start-secondary-invalidation-all! [sec-ids]
+(defn start-secondary-invalidation-all!
+  "Start a secondary-index invalidation on every registered cache backend type.
+
+   Returns a single-use function of one boolean: true finalizes the invalidation and
+   ends the lockout, false ends the lockout without invalidating. See
+   memento.core/start-invalidation! for the caller-facing contract."
+  [sec-ids]
   (let [failures (ArrayList.)
         cache-types (disj (into (set (keys (methods start-secondary-invalidation!)))
-                                  (keys (methods finalize-invalidation!)))
-                           :default)
-         started (into [] (keep #(start-invalidator failures sec-ids %)) cache-types)
+                                (keys (methods finalize-invalidation!)))
+                          :default)
+        started (into [] (keep #(start-invalidator failures sec-ids %)) cache-types)
         completed (AtomicBoolean.)]
-    (when-let [^Throwable failure (first failures)]
-       (run! #(finalize-invalidator! failures sec-ids % false) started)
-      (run! #(.addSuppressed failure %) (next failures))
-      (throw failure))
+    (when (seq failures)
+      ;; Do not leave partially started backends locked out.
+      (run! #(finalize-invalidator! failures sec-ids % false) started)
+      (throw-failures! failures))
     (fn [invalidate?]
       (when-not (.compareAndSet completed false true)
         (throw (IllegalStateException. "Invalidation has already completed")))
-       (run! #(finalize-invalidator! failures sec-ids % invalidate?) started)
-      (when-let [^Throwable failure (first failures)]
-        (run! #(.addSuppressed failure %) (next failures))
-        (throw failure)))))
+      (run! #(finalize-invalidator! failures sec-ids % invalidate?) started)
+      (throw-failures! failures))))
 
 (defmethod new-cache :memento.core/none [_] no-cache)
 
