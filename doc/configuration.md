@@ -202,7 +202,7 @@ Common uses:
 
 ### `mc/ret-ex-fn`
 
-Transform exceptions before they're cached/rethrown. Receives `[args throwable]`.
+Transform exceptions before they are rethrown to both the loading caller and concurrent callers. Receives `[args throwable]`.
 
 ```clojure
 ;; Don't cache transient errors

@@ -121,7 +121,7 @@ public class CaffeineCache_ {
                     if (!promise.isInvalid()) {
                         Throwable delivered = retExFn == null ? t : (Throwable) retExFn.invoke(args, t);
                         if (promise.deliverException(delivered)) {
-                            throw t;
+                            throw delivered;
                         }
                     }
                 } finally {

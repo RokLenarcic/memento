@@ -907,15 +907,21 @@
     (is (identical? EntryMeta/absent (b/if-cached (m/active-cache c) (.segment c) nil)))))
 
 (deftest ret-ex-fn-test
-  (testing "returns transformed-exception"
-    (let [e (RuntimeException.)
-          c (m/memo (fn [] (Thread/sleep 100)
-                      (throw (IOException.)))
-                    (assoc inf mc/ret-ex-fn (fn [_ ee] (when (instance? IOException ee) e))))
-          f1 (future (try (c) (catch Exception e e)))
-          f2 (future (try (c) (catch Exception e e)))]
-      (is (= e @f1))
-      (is (= e @f2)))))
+  (let [transformed (RuntimeException.)
+        started (promise)
+        release (promise)
+        c (m/memo (fn []
+                    (deliver started true)
+                    @release
+                    (throw (IOException.)))
+                  (assoc inf mc/ret-ex-fn
+                         (fn [_ ex] (when (instance? IOException ex) transformed))))
+        owner (future (try (c) (catch Exception ex ex)))]
+    @started
+    (let [joiner (future (try (c) (catch Exception ex ex)))]
+      (deliver release true)
+      (is (identical? transformed @owner))
+      (is (identical? transformed @joiner)))))
 
 (deftest variable-expiry-test
   (testing "Variable expiry"
