@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 3.0.0
+## 3.0.89
 
 - Secondary-index invalidation is now implemented by cache backend methods via
   the `start-secondary-invalidation!` and `finalize-invalidation!` lifecycle;
@@ -12,6 +12,11 @@
   the lockout ends, with a one-minute diagnostic timeout for leaked or self-owned lockouts.
 - Secondary IDs are arbitrary values. Added `with-sec-id` and `memo-clear-sec-id!`.
 - Added `mc/lite`, a Caffeine cache without secondary-index support.
+- Removed the deprecated tag-pair APIs `with-tag-id`, `memo-clear-tag!`, and
+  `memo-clear-tags!`; use secondary IDs instead.
+- `ret-ex-fn` transformations are now also delivered to the caller that performs
+  the load, matching the exception seen by concurrent callers.
+- Upgraded the Caffeine dependency to 3.2.4.
 - Core no longer owns a universal invalidation epoch. Each cache backend owns its
   secondary-index storage domains and concurrency model.
 - **Breaking change for cache implementors:** removed `invalidateIds` from
