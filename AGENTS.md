@@ -13,9 +13,8 @@ This document provides an analysis of the Memento caching library for AI assista
 - Cache events system
 - Variable per-entry expiry
 
-**Current version**: 2.0.68  
 **Minimum Java**: 11+  
-**Primary dependency**: Caffeine 3.1.8
+**Primary dependency**: Caffeine 3.2.4
 
 ## Directory Structure
 
