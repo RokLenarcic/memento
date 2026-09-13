@@ -14,6 +14,34 @@ A Clojure memoization library with **scoped caching** and **smart invalidation**
 - **[Variable per-entry expiry](doc/advanced.md#variable-expiry)** - set TTL based on the cached value itself
 - **[2-3x better performance](doc/performance.md)** - backed by Caffeine
 
+## Feature Matrix
+
+| Feature | memoize | core memoize | memento/lite | memento/caffeine |
+|---------|:-------:|:------------:|:------------:|:----------------:|
+| Thread-safe cache access | No | Yes | Yes | Yes |
+| Single-flight loading | No | Yes | Yes | Yes |
+| [Size limit / LRU eviction](#limit-cache-size) | No | Yes | Yes | Yes |
+| [TTL expiry](#cache-with-time-expiration) | No | Yes | Yes | Yes |
+| [Access-based expiry](#cache-with-time-expiration) | No | No | Yes | Yes |
+| [Variable per-entry expiry](doc/advanced.md#variable-expiry) | No | No | Yes | Yes |
+| [Explicit key invalidation](doc/invalidation.md#clear-a-specific-entry) | No | Yes | Yes | Yes |
+| [Clear-all invalidation](doc/invalidation.md#clear-all-entries-for-a-function) | No | Yes | Yes | Yes |
+| [Secondary-ID invalidation](doc/invalidation.md#secondary-index-invalidation) | No | No | No | Yes |
+| [Invalidation/load coordination](doc/invalidation.md#invalidation-around-a-write) | No | No | No | Yes |
+| [Bulk cache warming / N+1 prevention](#n+1-query-prevention) | No | No | Yes | Yes |
+| [Selective non-caching](#transform-return-values) | No | No | Yes | Yes |
+| [Custom key functions](#custom-cache-keys) | No | Yes | Yes | Yes |
+| [Scoped/request caching](#scoped-caching) | No | No | Yes | Yes |
+| [Tiered caches](doc/advanced.md#tiered-caching) | No | No | Yes | Yes |
+| [Shared cache across functions](doc/advanced.md#shared-caches-across-functions) | No | No | Yes | Yes |
+| [Weight-based eviction](doc/advanced.md#weight-based-eviction) | No | No | Yes | Yes |
+| [Weak/soft values](doc/advanced.md#weaksoft-references) | No | No | Yes | Yes |
+| [Statistics](doc/advanced.md#cache-statistics) | No | No | Yes | Yes |
+| [Removal listeners](doc/advanced.md#removal-listener) | No | No | Yes | Yes |
+
+For `core memoize`, availability depends on the cache constructor used, such as
+`memo`, `ttl`, or `lru`.
+
 ### Scoped Caching
 
 Traditional caching strategies struggle with API/web requests:
@@ -49,16 +77,6 @@ Memento's event system lets bulk loaders populate single-item caches:
 ```
 
 See [Events documentation](doc/advanced.md#events-n1-query-prevention) for the full pattern.
-
-## Installation
-
-```clojure
-;; deps.edn
-org.clojars.roklenarcic/memento {:mvn/version "2.0.68"}
-
-;; Leiningen
-[org.clojars.roklenarcic/memento "2.0.68"]
-```
 
 Requires Java 11+.
 
@@ -329,6 +347,6 @@ See [MIGRATION.md](MIGRATION.md) for version upgrade guides.
 
 ## License
 
-Copyright 2020-2024 Rok Lenarcic
+Copyright 2020-2026 Rok Lenarcic
 
 Licensed under the MIT License.
