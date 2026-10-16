@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `defmemo` now defines the var with the memoized function in a single `def`, instead of
+  defining the plain function and then rebinding the var root with `alter-var-root`.
+  The `::m/cache`/`::m/mount` config forms are evaluated once and the evaluated values
+  are stored in var meta. All other `defn` metadata (docstring, arglists, type hints) is kept.
+- `defmemo` throws at macro expansion time on primitive (`long`/`double`) type hints,
+  because memoized functions cannot implement the primitive invoke interfaces.
+
 ## 3.0.89
 
 - Secondary-index invalidation is now implemented by cache backend methods via

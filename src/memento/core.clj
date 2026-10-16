@@ -53,6 +53,24 @@
     (throw (IllegalArgumentException. "Argument should satisfy memento.base/Cache")))
   (mount/bind fn-or-var mount-conf cache))
 
+(defn- split-conf
+  "Splits combined conf into [mount-conf cache-conf]. Non-map conf is all mount-conf."
+  [conf]
+  (if (map? conf)
+    (let [{mount-conf true
+           cache-conf false}
+          (reduce-kv (fn [acc k v]
+                       (assoc-in acc [(isa? k ::mount/conf) k] v))
+                     {}
+                     conf)]
+      ;; ttl and fade are both mount and cache settings,
+      ;; ensure they reach cache-conf too
+      [mount-conf
+       (cond-> cache-conf
+         (contains? conf ::ttl) (assoc ::ttl (::ttl conf))
+         (contains? conf ::fade) (assoc ::fade (::fade conf)))])
+    [conf {}]))
+
 (defn memo
   "Combines cache create and bind operations from this namespace.
 
@@ -69,32 +87,57 @@
      (if mount (memo fn-or-var mount cache)
                (memo fn-or-var cache))))
   ([fn-or-var conf]
-   (if (map? conf)
-     (let [{mount-conf true
-            cache-conf false}
-           (reduce-kv (fn [acc k v]
-                        (assoc-in acc [(isa? k ::mount/conf) k] v))
-                      {}
-                      conf)
-           ;; ttl and fade are both mount and cache settings,
-           ;; ensure they reach cache-conf too
-           cache-conf (cond-> cache-conf
-                        (contains? conf ::ttl) (assoc ::ttl (::ttl conf))
-                        (contains? conf ::fade) (assoc ::fade (::fade conf)))]
-       (memo fn-or-var mount-conf cache-conf))
-     (memo fn-or-var conf {})))
+   (let [[mount-conf cache-conf] (split-conf conf)]
+     (memo fn-or-var mount-conf cache-conf)))
   ([fn-or-var mount-conf cache-conf]
    (->> cache-conf
         create
         (bind fn-or-var mount-conf))))
 
+(defn memo-def*
+  "Internal function used by defmemo. Memoizes fn f that is about to become root
+  of var v, without touching the var. Conf is a map with optional ::mount and ::cache
+  keys, same semantics as var meta in 1-arity memo."
+  [f v {::keys [mount cache]}]
+  (let [[mount-conf cache-conf] (if mount [mount cache] (split-conf cache))]
+    (memo f (mount/var-mount-conf v mount-conf) cache-conf)))
+
+(def ^:private prim-tags '#{long double})
+
+(defn- prim-hinted?
+  "True if any of the arglists or the name meta use primitive type hints, which
+  produce IFn$LL style call sites that a cached function cannot satisfy."
+  [name-meta arglists]
+  (boolean
+    (or (prim-tags (:tag name-meta))
+        (some (fn [params]
+                (or (prim-tags (:tag (meta params)))
+                    (some #(and (symbol? %) (prim-tags (:tag (meta %)))) params)))
+              arglists))))
+
 (defmacro defmemo
-  "Like defn, but immediately wraps var in a memo call. It expects caching configuration
-  to be in meta under memento.core/cache key, as expected by memo."
+  "Like defn, but the var is defined with a memoized function in a single def
+  (the var is never bound to the uncached function, no alter-var-root is used).
+
+  It expects caching configuration to be in meta under memento.core/cache key
+  (and optionally memento.core/mount), as expected by memo. The config forms are
+  evaluated once, the evaluated values are stored in var meta and used for caching.
+
+  Primitive type hints (long, double) are not supported."
   {:arglists '([name doc-string? attr-map? [params*] prepost-map? body]
                [name doc-string? attr-map? ([params*] prepost-map? body) + attr-map?])}
   [& body]
-  `(memo (defn ~@body)))
+  (let [[_ name-sym init] (macroexpand-1 `(defn ~@body))
+        name-meta (meta name-sym)
+        conf-keys (filter #(contains? name-meta %) [::mount ::cache])
+        locals (zipmap conf-keys (map #(gensym (name %)) conf-keys))]
+    (when (prim-hinted? name-meta (let [a (:arglists name-meta)]
+                                    (if (and (seq? a) (= 'quote (first a))) (second a) a)))
+      (throw (IllegalArgumentException.
+               (str "defmemo " name-sym ": primitive type hints are not supported on memoized functions"))))
+    `(let [~@(mapcat (fn [[k local]] [local (get name-meta k)]) locals)]
+       (def ~(vary-meta name-sym merge locals)
+         (memo-def* ~init (var ~(with-meta name-sym nil)) ~locals)))))
 
 (defn active-cache
   "Return Cache instance from the function, if present."

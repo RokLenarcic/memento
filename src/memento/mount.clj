@@ -105,14 +105,18 @@
         mp)
       (->UntaggedMountPoint cache segment evt-fn))))
 
+(defn var-mount-conf
+  "Canonical mount conf for a function bound to var v, defaults id to the var's name."
+  [v mount-conf]
+  (-> mount-conf
+      reify-mount-conf
+      (update config/id #(or % (.intern (str v))))))
+
 (defn bind
   "Bind a cache to a fn or var. Internal function."
   [fn-or-var mount-conf cache]
   (if (var? fn-or-var)
-    (let [mount-conf (-> mount-conf
-                         reify-mount-conf
-                         (update config/id #(or % (.intern (str fn-or-var)))))]
-      (alter-var-root fn-or-var bind mount-conf cache))
+    (alter-var-root fn-or-var bind (var-mount-conf fn-or-var mount-conf) cache)
     (let [mount-conf (reify-mount-conf mount-conf)
           constructor (if (instance? MultiFn fn-or-var)
                         #(CachedMultiFn. (str (config/id mount-conf)) %1 %2 %3 %4)
