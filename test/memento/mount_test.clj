@@ -32,6 +32,30 @@
 (deftest update-existing-test
   (is (= {:a 1 :b 2} (m/update-existing {:a 1 :b 1} [:b :c] inc))))
 
+(deftest split-conf-test
+  (are [conf expected] (= expected (m/split-conf conf))
+    {mc/tags [:a] mc/type mc/caffeine} [{mc/tags [:a]} {mc/type mc/caffeine}]
+    {mc/ttl 10 mc/size< 5} [{mc/ttl 10} {mc/ttl 10 mc/size< 5}]
+    {mc/fade 10} [{mc/fade 10} {mc/fade 10}]
+    :tag [:tag {}]
+    nil [nil {}]))
+
+(deftest meta-confs-test
+  (are [m expected] (= expected (m/meta-confs m))
+    {mc/cache {mc/tags [:a] mc/size< 5}} [{mc/tags [:a]} {mc/size< 5}]
+    {mc/mount :tag mc/cache {mc/size< 5}} [:tag {mc/size< 5}]
+    {mc/cache :tag} [:tag {}]
+    {} [nil {}]))
+
+(deftest prim-hinted?-test
+  (are [var-meta expected] (= expected (m/prim-hinted? var-meta))
+    {:arglists '([x] [x y])} false
+    {:arglists '(quote ([^String x] [x ^Long y]))} false
+    {:arglists '(quote ([^long x]))} true
+    {:arglists '(quote ([x] ^double [x y]))} true
+    {:arglists '([x {:keys [^long y]}])} false
+    {:tag 'long :arglists '([x])} true))
+
 (defn test-fn [x] nil)
 (def test-fn-saved test-fn)
 
