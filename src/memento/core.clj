@@ -65,36 +65,38 @@
   in memento.core/memo. If :memento.core/mount key is also present, then
   they are used as cache and conf parameters respectively."
   ([fn-or-var]
-   (let [{::keys [mount cache]} (meta fn-or-var)]
-     (if mount (memo fn-or-var mount cache)
-               (memo fn-or-var cache))))
+   (let [[mount-conf cache-conf] (mount/meta-confs (meta fn-or-var))]
+     (memo fn-or-var mount-conf cache-conf)))
   ([fn-or-var conf]
-   (if (map? conf)
-     (let [{mount-conf true
-            cache-conf false}
-           (reduce-kv (fn [acc k v]
-                        (assoc-in acc [(isa? k ::mount/conf) k] v))
-                      {}
-                      conf)
-           ;; ttl and fade are both mount and cache settings,
-           ;; ensure they reach cache-conf too
-           cache-conf (cond-> cache-conf
-                        (contains? conf ::ttl) (assoc ::ttl (::ttl conf))
-                        (contains? conf ::fade) (assoc ::fade (::fade conf)))]
-       (memo fn-or-var mount-conf cache-conf))
-     (memo fn-or-var conf {})))
+   (let [[mount-conf cache-conf] (mount/split-conf conf)]
+     (memo fn-or-var mount-conf cache-conf)))
   ([fn-or-var mount-conf cache-conf]
    (->> cache-conf
         create
         (bind fn-or-var mount-conf))))
 
 (defmacro defmemo
-  "Like defn, but immediately wraps var in a memo call. It expects caching configuration
-  to be in meta under memento.core/cache key, as expected by memo."
+  "Like defn, but the var is defined with a memoized function in a single def
+  (the var is never bound to the uncached function, no alter-var-root is used).
+
+  It expects caching configuration to be in meta under memento.core/cache key
+  (and optionally memento.core/mount), as expected by memo. The config forms are
+  evaluated once, the evaluated values are stored in var meta and used for caching.
+
+  Primitive type hints (long, double) are not supported."
   {:arglists '([name doc-string? attr-map? [params*] prepost-map? body]
                [name doc-string? attr-map? ([params*] prepost-map? body) + attr-map?])}
   [& body]
-  `(memo (defn ~@body)))
+  (let [[_ name-sym init] (macroexpand-1 `(defn ~@body))
+        name-meta (meta name-sym)
+        conf-keys (filter #(contains? name-meta %) [::mount ::cache])
+        locals (zipmap conf-keys (map #(gensym (name %)) conf-keys))]
+    (when (mount/prim-hinted? name-meta)
+      (throw (IllegalArgumentException.
+               (str "defmemo " name-sym ": primitive type hints are not supported on memoized functions"))))
+    `(let [~@(mapcat (fn [[k local]] [local (get name-meta k)]) locals)]
+       (def ~(vary-meta name-sym merge locals)
+         (mount/bind-var-fn ~init (var ~(with-meta name-sym nil)) ~locals)))))
 
 (defn active-cache
   "Return Cache instance from the function, if present."

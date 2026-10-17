@@ -105,14 +105,60 @@
         mp)
       (->UntaggedMountPoint cache segment evt-fn))))
 
+(defn var-mount-conf
+  "Canonical mount conf for a function bound to var v, defaults id to the var's name."
+  [v mount-conf]
+  (-> mount-conf
+      reify-mount-conf
+      (update config/id #(or % (.intern (str v))))))
+
+(defn split-conf
+  "Splits combined conf into [mount-conf cache-conf]. Non-map conf is all mount-conf."
+  [conf]
+  (if (map? conf)
+    (let [{mount-conf true
+           cache-conf false}
+          (reduce-kv (fn [acc k v]
+                       (assoc-in acc [(isa? k ::conf) k] v))
+                     {}
+                     conf)]
+      ;; ttl and fade are both mount and cache settings,
+      ;; ensure they reach cache-conf too
+      [mount-conf
+       (cond-> cache-conf
+         (contains? conf config/ttl) (assoc config/ttl (config/ttl conf))
+         (contains? conf config/fade) (assoc config/fade (config/fade conf)))])
+    [conf {}]))
+
+(defn meta-confs
+  "Returns [mount-conf cache-conf] from a map with config/cache and optional config/mount
+  keys (e.g. var meta). If config/mount is present, config/cache is used as cache conf as is,
+  otherwise config/cache is split into mount and cache conf."
+  [m]
+  (if-let [mount-conf (config/mount m)]
+    [mount-conf (config/cache m)]
+    (split-conf (config/cache m))))
+
+(def prim-tags "Type hints that produce primitive invoke interfaces." '#{long double})
+
+(defn prim-hinted?
+  "True if var meta (as produced by defn) specifies primitive type hints in return tag or
+  arglists, which produce IFn$LL style call sites that a cached function cannot satisfy."
+  [var-meta]
+  (let [arglists (:arglists var-meta)
+        arglists (if (and (seq? arglists) (= 'quote (first arglists))) (second arglists) arglists)
+        prim? #(contains? prim-tags (:tag (meta %)))]
+    (boolean
+      (or (contains? prim-tags (:tag var-meta))
+          (some (fn [params]
+                  (or (prim? params) (some #(and (symbol? %) (prim? %)) params)))
+                arglists)))))
+
 (defn bind
   "Bind a cache to a fn or var. Internal function."
   [fn-or-var mount-conf cache]
   (if (var? fn-or-var)
-    (let [mount-conf (-> mount-conf
-                         reify-mount-conf
-                         (update config/id #(or % (.intern (str fn-or-var)))))]
-      (alter-var-root fn-or-var bind mount-conf cache))
+    (alter-var-root fn-or-var bind (var-mount-conf fn-or-var mount-conf) cache)
     (let [mount-conf (reify-mount-conf mount-conf)
           constructor (if (instance? MultiFn fn-or-var)
                         #(CachedMultiFn. (str (config/id mount-conf)) %1 %2 %3 %4)
@@ -131,6 +177,13 @@
               :none (constructor reload-guard cache-mount (meta fn-or-var) fn-or-var))]
       (.addEntries (.getMp ^Cached f) (config/seed mount-conf {}))
       f)))
+
+(defn bind-var-fn
+  "Binds a new cache to fn f, which is about to become the root of var v,
+  without touching the var. Conf map is as described in meta-confs. Used by defmemo."
+  [f v conf]
+  (let [[mount-conf cache-conf] (meta-confs conf)]
+    (bind f (var-mount-conf v mount-conf) (base/base-create-cache cache-conf))))
 
 (defn mount-point
   "Return active mount point from the object's meta."

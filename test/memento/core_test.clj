@@ -185,6 +185,86 @@
     (is (= 3 (test-var-fn 1)))
     (is (= @test-atom 1))))
 
+(defn- eval-in-temp-ns
+  "Evaluates forms in a fresh namespace (with m and mc aliases) using the given
+  compiler options, returns the last result. The namespace is removed afterwards, so
+  vars with cache meta don't leak into other tests (e.g. ns-scan)."
+  [compiler-options & forms]
+  (let [ns-sym (gensym "memento.defmemo-test")]
+    (try
+      (binding [*ns* (create-ns ns-sym)
+                *compiler-options* (merge *compiler-options* compiler-options)]
+        (refer-clojure)
+        (alias 'm 'memento.core)
+        (alias 'mc 'memento.config)
+        (reduce (fn [_ form] (eval form)) nil forms))
+      (finally (remove-ns ns-sym)))))
+
+(defn segment-id [f] (-> ^memento.mount.Cached f .getMp .segment .getId))
+
+(deftest defmemo-test
+  (testing "preserves defn metadata, evaluates config once, binds memoized fn with var id"
+    (let [[var-meta evals var-name id results]
+          (eval-in-temp-ns
+            {}
+            '(def evals (atom 0))
+            '(m/defmemo f
+               "Docstring."
+               {::m/cache (do (swap! evals inc) {mc/type mc/caffeine})
+                :custom :value}
+               (^String [^Long x] (str x))
+               ([x y] (str x y)))
+            `[(meta (var ~'f)) @~'evals (str (var ~'f)) (segment-id ~'f)
+              [(m/memoized? ~'f) (~'f 1) (~'f 1 2)]])
+          [arity-1] (:arglists var-meta)]
+      (is (= {:doc "Docstring."
+              :custom :value
+              :arglists '([x] [x y])
+              ::m/cache {mc/type mc/caffeine}
+              :return-tag 'java.lang.String
+              :arg-tag 'Long
+              :evals 1
+              :id var-name
+              :results [true "1" "12"]}
+             (-> (select-keys var-meta [:doc :custom :arglists ::m/cache])
+                 (assoc :return-tag (:tag (meta arity-1))
+                        :arg-tag (:tag (meta (first arity-1)))
+                        :evals evals
+                        :id id
+                        :results results))))))
+  (testing "primitive hints are rejected at macro expansion time"
+    (are [form] (re-find #"primitive type hints"
+                         (try (macroexpand-1 form) ""
+                              (catch Exception e (ex-message (ex-cause e)))))
+      '(memento.core/defmemo f [^long x] x)
+      '(memento.core/defmemo f ^double [x] x)
+      '(memento.core/defmemo f ([x] x) ([x ^double y] y))
+      '(memento.core/defmemo ^long f [x] x))))
+
+(deftest defmemo-mount-id-test
+  (are [mount-conf expected-id]
+    (let [[var-name id] (eval-in-temp-ns
+                          {}
+                          `(m/defmemo ~'f {::m/mount ~mount-conf ::m/cache ~inf} [~'x] ~'x)
+                          `[(str (var ~'f)) (segment-id ~'f)])]
+      (= (or expected-id var-name) id))
+    {} nil
+    [:tag-a] nil
+    :tag-a nil
+    {mc/id :custom} :custom))
+
+(deftest defmemo-direct-linking-test
+  (testing "callers and recursive calls hit the cache with direct linking"
+    (is (= [15 21 21 7 true]
+           (eval-in-temp-ns
+             {:direct-linking true}
+             '(def calls (atom 0))
+             '(m/defmemo f {::m/cache {mc/type mc/caffeine}} [n]
+                (swap! calls inc)
+                (if (zero? n) 0 (+ n (f (dec n)))))
+             '(defn g [n] (f n))
+             '[(g 5) (g 6) (g 6) @calls (m/memoized? f)])))))
+
 (deftest seed-test
   (testing "that seeding a function works"
     (let [cached (memo + (assoc inf mc/seed {[3 5] 100 [4 5] 2000}))]
